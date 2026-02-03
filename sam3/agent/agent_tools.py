@@ -4,14 +4,14 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
-import sam3
 from PIL import Image
-from sam3 import build_sam3_image_model
-from sam3.model.box_ops import box_xywh_to_cxcywh
-from sam3.model.sam3_image_processor import Sam3Processor
+# Use relative imports since we're working with local source code
+from .. import build_sam3_image_model
+from ..model.box_ops import box_xywh_to_cxcywh
+from ..model.sam3_image_processor import Sam3Processor
 
-from sam3.model_builder import build_sam3_video_predictor
-from sam3.visualization_utils import (
+from ..model_builder import build_sam3_video_predictor
+from ..visualization_utils import (
     draw_box_on_image,
     normalize_bbox,
     plot_results,
@@ -24,12 +24,18 @@ from sam3.visualization_utils import (
 from torchvision.ops import masks_to_boxes
 predictor = build_sam3_video_predictor()
 
+import matplotlib.pyplot as plt
+import torch
+from torchvision.ops import masks_to_boxes
+import numpy as np
+
+import cv2
+
 
 
 # font size for axes titles
 plt.rcParams["axes.titlesize"] = 12
 plt.rcParams["figure.titlesize"] = 12
-import cv2
 
 def propagate_in_video(predictor, session_id):
     # we will just propagate from frame 0 to the end of the video
@@ -62,10 +68,7 @@ def abs_to_rel_coords(coords, IMG_WIDTH, IMG_HEIGHT, coord_type="point"):
         ]
     else:
         raise ValueError(f"Unknown coord_type: {coord_type}")
-import matplotlib.pyplot as plt
-import torch
-from torchvision.ops import masks_to_boxes
-import numpy as np
+
 
 def visualize_formatted_frame_output(
     frame_idx,

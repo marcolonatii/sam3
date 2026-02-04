@@ -89,8 +89,8 @@ class ObjectList:
 
 
 class Sam3TrackingTool:
-    def __init__(self, video_path: str) -> None:
-        self.predictor = build_sam3_video_predictor()
+    def __init__(self, video_path: str, bpe_path: str) -> None:
+        self.predictor = build_sam3_video_predictor(bpe_path=bpe_path)
         self.video_path = video_path
         self.video_frames_for_vis = get_frames(self.video_path)
         self.session_id = get_session(self.predictor, self.video_path)

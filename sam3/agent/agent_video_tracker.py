@@ -14,6 +14,8 @@ class DetectedObject:
     img_W: int
     img_H: int
     def __init__(self, label: str, id: int, img_W: int, img_H: int, boxes: Dict[int, List[float]] = {}) -> None:
+      self.img_W = img_W
+      self.img_H = img_H
       self.id = id
       self.label = label
       self.bounding_boxes = boxes

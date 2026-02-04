@@ -19,7 +19,10 @@ class DetectedObject:
       self.id = id
       self.label = label
       self.bounding_boxes = boxes
-      self.center_coordinates =  [[(box[0] + box[2]) / 2, (box[1] + box[3]) / 2] for box in boxes.values()]
+      self.center_coordinates = {
+        frame_idx: [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
+        for frame_idx, box in boxes.items()
+      }
     def from_outputs_per_frame(self, outputs_per_frame):
       for frame_idx, output in outputs_per_frame.items():
         for obj_id, binary_mask in output.items():

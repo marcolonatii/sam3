@@ -93,7 +93,7 @@ class Sam3TrackingTool:
         self.predictor = build_sam3_video_predictor()
         self.video_path = video_path
         self.video_frames_for_vis = get_frames(self.video_path)
-        self.session_id = self.get_session(self.predictor, self.video_path)
+        self.session_id = get_session(self.predictor, self.video_path)
         self.object_list = ObjectList()
 
         #debug purpose

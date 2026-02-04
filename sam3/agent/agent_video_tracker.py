@@ -13,7 +13,7 @@ class DetectedObject:
     center_coordinates: Dict[int, List[float]] # frame_idx -> [x, y]
     img_W: int
     img_H: int
-    def __init__(self, label: str, id: int, boxes: Dict[int, List[float]] = {}) -> None:
+    def __init__(self, label: str, id: int, img_W: int, img_H: int, boxes: Dict[int, List[float]] = {}) -> None:
       self.id = id
       self.label = label
       self.bounding_boxes = boxes

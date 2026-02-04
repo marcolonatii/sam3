@@ -9,8 +9,8 @@ from PIL import Image
 from .. import build_sam3_image_model
 from ..model.box_ops import box_xywh_to_cxcywh
 from ..model.sam3_image_processor import Sam3Processor
-
 from ..model_builder import build_sam3_video_predictor
+from ..model.sam3_video_predictor import Sam3VideoPredictorMultiGPU
 from ..visualization_utils import (
     draw_box_on_image,
     normalize_bbox,
@@ -264,3 +264,6 @@ def propagate(predictor, session_id, video_frames_for_vis):
           figsize=(6, 4),
       )
   return outputs_per_frame
+
+
+

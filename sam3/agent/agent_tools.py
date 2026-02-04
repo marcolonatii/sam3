@@ -22,7 +22,7 @@ from ..visualization_utils import (
     plot_mask
 )
 from torchvision.ops import masks_to_boxes
-predictor = build_sam3_video_predictor()
+# predictor = build_sam3_video_predictor()
 
 import matplotlib.pyplot as plt
 import torch

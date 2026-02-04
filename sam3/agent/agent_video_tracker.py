@@ -106,17 +106,25 @@ class ObjectList:
           if o.id == obj.id:
             return True
         return False
-    def contains_object_str(self, obj: str):
+    def contains_object_str(self, label: str):
         for o in self.objects:
-          if o.label == obj:
+          if o.label == label:
             return True
         return False
     def get_objects(self):
         return self.objects
-    def get_object(self, label:str):
+    def get_object_by_label(self, label:str):
       for o in self.objects:
         if o.label == label:
           return o
+    def new_id(self):
+        return len(self.objects)
+    #todo: would this cause memory leak? May need to deep copy
+    def merge(self, other: "ObjectList"):
+        for o in other.objects:
+            if self.contains_object(o):
+                o.id = self.new_id()
+            self.add_object(o)
     def __str__(self) -> str:
       if not self.objects:
           return "ObjectList(empty)"
@@ -156,7 +164,7 @@ class Sam3TrackingTool:
         outputs_per_frame = propagate(self.predictor, self.session_id, self.video_frames_for_vis)
         new_objects = ObjectList()
         new_objects.from_outputs_per_frame(outputs_per_frame)
-        self.object_list.extend(new_objects)
+        self.object_list.merge(new_objects)
         self.outputs_per_frame = outputs_per_frame
     def _get_object_list(self) -> ObjectList:
         return self.object_list
@@ -167,8 +175,8 @@ class Sam3TrackingTool:
     def _get_video_frames_for_vis(self) -> List[np.ndarray]:
         return self.video_frames_for_vis
     def _detect_interaction(self, object1: str, object2: str, interaction_type: str, threshold: float = 0.05) -> List[int]:
-        obj1 = self.object_list.get_object(object1)
-        obj2 = self.object_list.get_object(object2)
+        obj1 = self.object_list.get_object_by_label(object1)
+        obj2 = self.object_list.get_object_by_label(object2)
         if obj1 is None or obj2 is None:
             return []
         fn = getattr(obj1, interaction_type)
@@ -191,6 +199,9 @@ class Sam3TrackingTool:
             self._propagate()
             return "Propagated successfully"
         @tool(name="detect_interaction", description="Detect interaction between two objects, return frames if the interaction happens")
-        def detect_interaction(self, object1: str, object2: str, interaction_type: str, threshold: float = 0.05) -> List[int]:
-            return self._detect_interaction(object1, object2, interaction_type, threshold)
+        def detect_interaction(self, object1: str, object2: str, interaction_type: str, threshold: float = 0.05) -> str:
+            if self.object_list.contains_object_str(object1) and self.object_list.contains_object_str(object2):
+                return ",".join(self._detect_interaction(object1, object2, interaction_type, threshold))
+            else:
+                return "Objects not found"
         return [get_object_list, add_prompt, reset_session, propagate, detect_interaction]

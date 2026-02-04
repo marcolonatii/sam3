@@ -6,7 +6,7 @@ import numpy as np
 
 from PIL import Image
 # Use relative imports since we're working with local source code
-from .. import build_sam3_image_model
+# from .. import build_sam3_image_model
 from ..model.box_ops import box_xywh_to_cxcywh
 from ..model.sam3_image_processor import Sam3Processor
 from ..model_builder import build_sam3_video_predictor

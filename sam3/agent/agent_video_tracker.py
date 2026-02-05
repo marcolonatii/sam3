@@ -55,7 +55,7 @@ class DetectedObject:
       except KeyError:
         return False
       return np.linalg.norm(np.array(center1) - np.array(center2)) < radius
-    def obove(self, frame_idx, object, threshold):
+    def above(self, frame_idx, object, threshold):
       try:
         center1 = self.get_center(frame_idx)
         center2 = object.get_center(frame_idx)
@@ -212,7 +212,7 @@ class Sam3TrackingTool:
         def propagate(self) -> str:
             self._propagate()
             return "Propagated successfully"
-        @tool(name="detect_interaction", description="Detect interaction between two objects, return frames if the interaction happens")
+        @tool(name="detect_interaction", description="Detect interaction (near, above, below, colliding) between two objects, return frames if the interaction happens")
         def detect_interaction(self, object1: str, object2: str, interaction_type: str, threshold: float = 0.05) -> str:
             if self.object_list.contains_object_str(object1) and self.object_list.contains_object_str(object2):
                 return ",".join(self._detect_interaction(object1, object2, interaction_type, threshold))

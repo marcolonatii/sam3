@@ -56,17 +56,26 @@ class DetectedObject:
         return False
       return np.linalg.norm(np.array(center1) - np.array(center2)) < radius
     def obove(self, frame_idx, object, threshold):
-      center1 = self.get_center(frame_idx)
-      center2 = object.get_center(frame_idx)
+      try:
+        center1 = self.get_center(frame_idx)
+        center2 = object.get_center(frame_idx)
+      except KeyError:
+        return False
       return center1[1] > center2[1] + threshold
     def below(self, frame_idx, object, threshold):
-      center1 = self.get_center(frame_idx)
-      center2 = object.get_center(frame_idx)
+      try:
+        center1 = self.get_center(frame_idx)
+        center2 = object.get_center(frame_idx)
+      except KeyError:
+        return False
       return center1[1] < center2[1] - threshold
     def colliding(self, frame_idx, object, threshold):
       #todo: codex's code
-      box1 = self.get_box(frame_idx)
-      box2 = object.get_box(frame_idx)
+      try:
+        box1 = self.get_box(frame_idx)
+        box2 = object.get_box(frame_idx)
+      except KeyError:
+        return False
       x1_min, y1_min, x1_max, y1_max = box1
       x2_min, y2_min, x2_max, y2_max = box2
 

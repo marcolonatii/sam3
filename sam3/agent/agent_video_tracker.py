@@ -14,15 +14,15 @@ class DetectedObject:
     center_coordinates: Dict[int, List[float]] # frame_idx -> [x, y]
     img_W: int
     img_H: int
-    def __init__(self, label: str, id: int, img_W: int, img_H: int, boxes: Dict[int, List[float]] = {}) -> None:
+    def __init__(self, label: str, id: int, img_W: int, img_H: int, boxes: Dict[int, List[float]] = None) -> None:
       self.img_W = img_W
       self.img_H = img_H
       self.id = id
       self.label = label
-      self.bounding_boxes = boxes
+      self.bounding_boxes = boxes if boxes is not None else {}
       self.center_coordinates = {
         frame_idx: [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
-        for frame_idx, box in boxes.items()
+        for frame_idx, box in self.bounding_boxes.items()
       }
     def from_outputs_per_frame(self, outputs_per_frame):
       for frame_idx, output in outputs_per_frame.items():
@@ -48,8 +48,12 @@ class DetectedObject:
       box = self.bounding_boxes[frame_idx]
       return [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
     def near(self, frame_idx, object, radius):
-      center1 = self.get_center(frame_idx)
-      center2 = object.get_center(frame_idx)
+      #todo: possible to get key error
+      try:
+        center1 = self.get_center(frame_idx)
+        center2 = object.get_center(frame_idx)
+      except KeyError:
+        return False
       return np.linalg.norm(np.array(center1) - np.array(center2)) < radius
     def obove(self, frame_idx, object, threshold):
       center1 = self.get_center(frame_idx)
@@ -152,6 +156,7 @@ class Sam3TrackingTool:
 
     #todo: recursively refine the object list
     def _add_prompt(self, prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[str] = None) -> None:
+        #todo: add objects here
         add_prompt_for_session(self.predictor, prompt_text_str, bounding_boxes, bounding_box_labels, self.session_id, self.video_frames_for_vis)
     def _reset_session(self) -> None:
         _ = self.predictor.handle_request(

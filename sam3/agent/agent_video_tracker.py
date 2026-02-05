@@ -166,6 +166,7 @@ class Sam3TrackingTool:
     #todo: recursively refine the object list
     def _add_prompt(self, prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[str] = None) -> None:
         #todo: add objects here
+
         add_prompt_for_session(self.predictor, prompt_text_str, bounding_boxes, bounding_box_labels, self.session_id, self.video_frames_for_vis)
     def _reset_session(self) -> None:
         _ = self.predictor.handle_request(
@@ -197,22 +198,22 @@ class Sam3TrackingTool:
         return [frame_idx for frame_idx in range(len(self.video_frames_for_vis)) if fn(frame_idx, obj2, threshold)]
             
     def _llm_tools(self):
-        @tool(name="get_object_list", description="Get the list of objects detected in the video")
-        def get_object_list(self) -> str:
+        @tool(description="Get the list of objects detected in the video")
+        def get_object_list() -> str:
             return "\n".join(self._get_object_list().__str__())
-        @tool(name="add_prompt", description="Add a prompt to the video tracker")
+        @tool(description="Add a prompt to the video tracker")
         def add_prompt(self, prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[str] = None) -> str:
             self._add_prompt(prompt_text_str, bounding_boxes, bounding_box_labels)
             return "Prompt added successfully"
-        @tool(name="reset_session", description="Reset the video tracker session")
+        @tool(description="Reset the video tracker session")
         def reset_session(self) -> str:
             self._reset_session()
             return "Session reset successfully"
-        @tool(name="propagate", description="Propagate the video tracker")
+        @tool(description="Propagate the video tracker")
         def propagate(self) -> str:
             self._propagate()
             return "Propagated successfully"
-        @tool(name="detect_interaction", description="Detect interaction (near, above, below, colliding) between two objects, return frames if the interaction happens")
+        @tool(description="Detect interaction (near, above, below, colliding) between two objects, return frames if the interaction happens")
         def detect_interaction(self, object1: str, object2: str, interaction_type: str, threshold: float = 0.05) -> str:
             if self.object_list.contains_object_str(object1) and self.object_list.contains_object_str(object2):
                 return ",".join(self._detect_interaction(object1, object2, interaction_type, threshold))

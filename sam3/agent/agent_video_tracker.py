@@ -152,6 +152,35 @@ class ObjectList:
     # Define the tool
 
 
+from PIL import Image
+from io import BytesIO
+import base64
+
+class Frame:
+    frame_np: np.ndarray
+    saving_path: str
+    frame_idx: int
+    def _numpy_to_data_url(self, frame_np):
+        img = Image.fromarray(self.frame_np)  # assumes RGB
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG")
+        image_bytes = buffer.getvalue()
+        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+        return f"data:image/jpeg;base64,{image_b64}"
+    def __init__(self, frame_np: np.ndarray, saving_path: str):
+        self.frame_np = frame_np
+    def to_data_url(self):
+        return self._numpy_to_data_url()
+    def save(self):
+        Image.fromarray(self.frame_np).save(self.saving_path+"/frame_"+str(self.frame_idx)+".png")
+
+
+
+    
+
+
+
+
 class Sam3TrackingTool:
     def __init__(self, video_path: str, bpe_path: str) -> None:
         self.predictor = build_sam3_video_predictor(bpe_path=bpe_path)
@@ -164,7 +193,7 @@ class Sam3TrackingTool:
         self.outputs_per_frame = None
 
     #todo: recursively refine the object list
-    def _add_prompt(self, prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[str] = None) -> None:
+    def _add_prompt(self, prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[int] = None) -> None:
         #todo: add objects here
         response = add_prompt_for_session(self.predictor, prompt_text_str, bounding_boxes, bounding_box_labels, self.session_id, self.video_frames_for_vis)
         return response
@@ -201,13 +230,18 @@ class Sam3TrackingTool:
         @tool(description="Get the list of objects detected in the video")
         def get_object_list() -> str:
             return "\n".join(self._get_object_list().__str__())
-        @tool(description="Add a prompt to the SAM3 video tracker, the output will be saved in ./frames_output/frame_0.png")
+        @tool(description="Add a prompt to the SAM3 video tracker, \
+            input boxes are expected to be [xmin, ymin, width, height] format\
+            in normalized coordinates of range 0~1, \
+            bounding_box_labels should be a list of integers, 1 stands including the object, 0 stands excluding the object,\
+            the output will be saved in ./frames_output/frame_0.png \
+            ")
         def add_prompt(prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[str] = None) -> str:
             response = self._add_prompt(prompt_text_str, bounding_boxes, bounding_box_labels)
             for obj_id in response['outputs']['out_obj_ids']:
                 #todo: add box for first frame
                 self.object_list.add_object(DetectedObject(label="", id=obj_id, img_W=self.video_frames_for_vis[0].shape[1], img_H=self.video_frames_for_vis[0].shape[0]))
-            return "Prompt added successfully"
+            return "Prompt added successfully, now the tracked objects are: \n" + "\n".join(self._get_object_list().__str__())
         @tool(description="Reset the video tracker session")
         def reset_session() -> str:
             self._reset_session()

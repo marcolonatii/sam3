@@ -227,17 +227,24 @@ class Sam3TrackingTool:
         return [frame_idx for frame_idx in range(len(self.video_frames_for_vis)) if fn(frame_idx, obj2, threshold)]
             
     def _llm_tools(self):
-        @tool(description="Get the list of objects detected in the video")
-        def get_object_list() -> str:
-            return "\n".join(self._get_object_list().__str__())
-        @tool(description="Add a prompt to the SAM3 video tracker, \
+        add_prompt_description = """
+            Add a prompt to the SAM3 video tracker, \
             input boxes are expected to be [xmin, ymin, width, height] format\
             in normalized coordinates of range 0~1, \
             bounding_box_labels should be a list of integers, 1 stands including the object, 0 stands excluding the object,\
             the output will be saved in ./frames_output/frame_0.png \
-            ")
-        def add_prompt(prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[str] = None) -> str:
-            response = self._add_prompt(prompt_text_str, bounding_boxes, bounding_box_labels)
+            """
+        add_prompt_description_temp = """
+            Add a prompt to the SAM3 video tracker, \
+            the output will be saved in ./frames_output/frame_0.png \
+        """
+        @tool(description="Get the list of objects detected in the video")
+        def get_object_list() -> str:
+            return "\n".join(self._get_object_list().__str__())
+        @tool(description=add_prompt_description)
+        # def add_prompt(prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[str] = None) -> str:
+        def add_prompt(prompt_text_str: str) -> str:
+            response = self._add_prompt(prompt_text_str)
             for obj_id in response['outputs']['out_obj_ids']:
                 #todo: add box for first frame
                 self.object_list.add_object(DetectedObject(label="", id=obj_id, img_W=self.video_frames_for_vis[0].shape[1], img_H=self.video_frames_for_vis[0].shape[0]))

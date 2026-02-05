@@ -166,8 +166,8 @@ class Sam3TrackingTool:
     #todo: recursively refine the object list
     def _add_prompt(self, prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[str] = None) -> None:
         #todo: add objects here
-
-        add_prompt_for_session(self.predictor, prompt_text_str, bounding_boxes, bounding_box_labels, self.session_id, self.video_frames_for_vis)
+        response = add_prompt_for_session(self.predictor, prompt_text_str, bounding_boxes, bounding_box_labels, self.session_id, self.video_frames_for_vis)
+        return response
     def _reset_session(self) -> None:
         _ = self.predictor.handle_request(
             request=dict(
@@ -201,20 +201,23 @@ class Sam3TrackingTool:
         @tool(description="Get the list of objects detected in the video")
         def get_object_list() -> str:
             return "\n".join(self._get_object_list().__str__())
-        @tool(description="Add a prompt to the video tracker")
-        def add_prompt(self, prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[str] = None) -> str:
-            self._add_prompt(prompt_text_str, bounding_boxes, bounding_box_labels)
+        @tool(description="Add a prompt to the SAM3 video tracker, the output will be saved in ./frames_output/frame_0.png")
+        def add_prompt(prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[str] = None) -> str:
+            response = self._add_prompt(prompt_text_str, bounding_boxes, bounding_box_labels)
+            for obj_id in response['outputs']['out_obj_ids']:
+                #todo: add box for first frame
+                self.object_list.add_object(DetectedObject(label="", id=obj_id, img_W=self.video_frames_for_vis[0].shape[1], img_H=self.video_frames_for_vis[0].shape[0]))
             return "Prompt added successfully"
         @tool(description="Reset the video tracker session")
-        def reset_session(self) -> str:
+        def reset_session() -> str:
             self._reset_session()
             return "Session reset successfully"
         @tool(description="Propagate the video tracker")
-        def propagate(self) -> str:
+        def propagate() -> str:
             self._propagate()
             return "Propagated successfully"
         @tool(description="Detect interaction (near, above, below, colliding) between two objects, return frames if the interaction happens")
-        def detect_interaction(self, object1: str, object2: str, interaction_type: str, threshold: float = 0.05) -> str:
+        def detect_interaction(object1: str, object2: str, interaction_type: str, threshold: float = 0.05) -> str:
             if self.object_list.contains_object_str(object1) and self.object_list.contains_object_str(object2):
                 return ",".join(self._detect_interaction(object1, object2, interaction_type, threshold))
             else:

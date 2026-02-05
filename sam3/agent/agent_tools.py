@@ -234,12 +234,14 @@ def add_prompt_for_session(predictor, prompt_text_str, bounding_boxes, bounding_
   out = response["outputs"]
 
   plt.close("all")
+  os.makedirs("./frames_output", exist_ok=True)
   visualize_formatted_frame_output(
       frame_idx,
       video_frames_for_vis,
       outputs_list=[prepare_masks_for_visualization({frame_idx: out})],
       titles=["SAM 3 Dense Tracking outputs"],
       figsize=(6, 4),
+      save_path=f"./frames_output/frame_{frame_idx}.png"
   )
   return response
 

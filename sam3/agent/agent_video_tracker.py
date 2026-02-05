@@ -235,20 +235,22 @@ class Sam3TrackingTool:
             the output will be saved in ./frames_output/frame_0.png \
             """
         add_prompt_description_temp = """
-            Add a prompt to the SAM3 video tracker, \
+            text prompt to add to SAM3 video tracker, \
+            the text prompt should be nouns separated by comma, \
+            for example, "person, car, tree" \
             the output will be saved in ./frames_output/frame_0.png \
         """
         @tool(description="Get the list of objects detected in the video")
         def get_object_list() -> str:
-            return "\n".join(self._get_object_list().__str__())
-        @tool(description=add_prompt_description)
+            return "".join(self._get_object_list().__str__())
+        @tool(description=add_prompt_description_temp)
         # def add_prompt(prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[str] = None) -> str:
         def add_prompt(prompt_text_str: str) -> str:
             response = self._add_prompt(prompt_text_str)
             for obj_id in response['outputs']['out_obj_ids']:
                 #todo: add box for first frame
                 self.object_list.add_object(DetectedObject(label="", id=obj_id, img_W=self.video_frames_for_vis[0].shape[1], img_H=self.video_frames_for_vis[0].shape[0]))
-            return "Prompt added successfully, now the tracked objects are: \n" + "\n".join(self._get_object_list().__str__())
+            return "Prompt added successfully, now the tracked objects are: \n" + "".join(self._get_object_list().__str__())
         @tool(description="Reset the video tracker session")
         def reset_session() -> str:
             self._reset_session()

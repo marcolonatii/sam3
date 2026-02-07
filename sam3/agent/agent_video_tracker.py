@@ -201,7 +201,7 @@ class Sam3TrackingTool:
     #todo: recursively refine the object list
     def _add_prompt(self, prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[int] = None) -> None:
         #todo: add objects here
-        response = add_prompt_for_session(self.predictor, prompt_text_str,0 , bounding_boxes, bounding_box_labels, [], self.session_id, self.video_frames_for_vis)
+        response = add_prompt_for_session(predictor=self.predictor, prompt_text_str=prompt_text_str, frame_idx=0, bounding_boxes=bounding_boxes, bounding_box_labels=bounding_box_labels, obj_ids=[], session_id=self.session_id, video_frames_for_vis=self.video_frames_for_vis)
         return response
     def _reset_session(self) -> None:
         _ = self.predictor.handle_request(

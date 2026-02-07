@@ -219,8 +219,8 @@ def get_session(predictor, video_path):
   session_id = response["session_id"]
   return session_id
 # prompt_text_str = "player in white"
-def add_prompt_for_session(predictor, prompt_text_str, bounding_boxes, bounding_box_labels, session_id, video_frames_for_vis):
-  frame_idx = 0  # add a text prompt on frame 0
+def add_prompt_for_session(predictor, prompt_text_str, frame_idx, bounding_boxes, bounding_box_labels, obj_ids, session_id, video_frames_for_vis):
+#   frame_idx = 0  # add a text prompt on frame 0
   response = predictor.handle_request(
       request=dict(
           type="add_prompt",
@@ -228,7 +228,8 @@ def add_prompt_for_session(predictor, prompt_text_str, bounding_boxes, bounding_
           frame_index=frame_idx,
           text=prompt_text_str,
           bounding_boxes=bounding_boxes,
-          bounding_box_labels=bounding_box_labels
+          bounding_box_labels=bounding_box_labels,
+          obj_ids=obj_ids
       )
   )
   out = response["outputs"]

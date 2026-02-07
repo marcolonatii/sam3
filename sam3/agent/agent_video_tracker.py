@@ -114,6 +114,12 @@ class ObjectList:
         obj.from_outputs_per_frame(outputs_per_frame)
     def add_object(self, obj: DetectedObject):
         self.objects.append(obj)
+    def label_objects(self, labels: Dict[int, str]):
+        for obj_id, label in labels.items():
+            for o in self.objects:
+                if o.id == obj_id:
+                    o.label = label
+                    break
     def contains_object(self, obj: DetectedObject):
         for o in self.objects:
           if o.id == obj.id:
@@ -250,7 +256,8 @@ class Sam3TrackingTool:
             for obj_id in response['outputs']['out_obj_ids']:
                 #todo: add box for first frame
                 self.object_list.add_object(DetectedObject(label="", id=obj_id, img_W=self.video_frames_for_vis[0].shape[1], img_H=self.video_frames_for_vis[0].shape[0]))
-            return "Prompt added successfully, now the tracked objects are: \n" + "".join(self._get_object_list().__str__())
+            #todo: shouldn't return success if no objects are added
+            return "now the tracked objects are: \n" + "".join(self._get_object_list().__str__())
         @tool(description="Reset the video tracker session")
         def reset_session() -> str:
             self._reset_session()

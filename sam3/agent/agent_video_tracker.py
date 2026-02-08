@@ -3,7 +3,7 @@ import torch
 from torchvision.ops import masks_to_boxes
 import numpy as np
 from ..visualization_utils import normalize_bbox
-from ..agent.agent_tools import add_prompt_for_session, propagate, get_frames, get_session
+from ..agent.agent_tools import add_prompt_for_session, propagate, get_frames, get_session, iou_mask
 from typing import List, Tuple, Dict
 from ..model_builder import build_sam3_video_predictor
 from langchain.tools import tool
@@ -12,14 +12,16 @@ class DetectedObject:
     label: str
     bounding_boxes: Dict[int, List[float]] # frame_idx -> [x1, y1, x2, y2]
     center_coordinates: Dict[int, List[float]] # frame_idx -> [x, y]
+    masks: Dict[int, np.ndarray] # frame_idx -> mask
     img_W: int
     img_H: int
-    def __init__(self, label: str, id: int, img_W: int, img_H: int, boxes: Dict[int, List[float]] = None) -> None:
+    def __init__(self, label: str, id: int, img_W: int, img_H: int, boxes: Dict[int, List[float]] = None, masks: Dict[int, np.ndarray] = None) -> None:
       self.img_W = img_W
       self.img_H = img_H
       self.id = id
       self.label = label
       self.bounding_boxes = boxes if boxes is not None else {}
+      self.masks = masks if masks is not None else {}
       self.center_coordinates = {
         frame_idx: [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
         for frame_idx, box in self.bounding_boxes.items()
@@ -40,6 +42,10 @@ class DetectedObject:
     def add_box(self, frame_idx, box):
       self.bounding_boxes[frame_idx] = box
       self.center_coordinates[frame_idx] = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
+    def add_mask(self, frame_idx, mask):
+      self.masks[frame_idx] = mask
+    def get_mask(self, frame_idx):
+      return self.masks[frame_idx]
     def get_box(self, frame_idx):
       return self.bounding_boxes[frame_idx]
     def get_label(self):
@@ -100,6 +106,14 @@ class DetectedObject:
         )
       )
       return vertical_touch or horizontal_touch
+    def overlapping(self, frame_idx, object, threshold):
+      try:
+        mask1 = self.get_mask(frame_idx)
+        mask2 = object.get_mask(frame_idx)
+      except KeyError:
+        return False
+      return iou_mask(mask1, mask2) > threshold
+    
 
 
 

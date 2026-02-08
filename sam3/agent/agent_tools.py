@@ -269,4 +269,14 @@ def propagate(predictor, session_id, video_frames_for_vis):
   return outputs_per_frame
 
 
+def normalized_box_to_mask(normalized_box, img_width, img_height):
+  xmin, ymin, xmax, ymax = normalized_box
+  mask = np.zeros((img_height, img_width), dtype=np.uint8)
+  mask[ymin*img_height:ymax*img_height, xmin*img_width:xmax*img_width] = 1
+  return mask
 
+
+
+def iou_mask(mask1, mask2):
+    'calculate the overlap between two masks'
+    return np.sum(mask1 & mask2) / np.sum(mask1 | mask2)

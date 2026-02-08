@@ -34,8 +34,8 @@ class DetectedObject:
       }
     def save(self, path: str) -> None:
       os.makedirs(path, exist_ok=True)
-      meta_path = os.path.join(path, "object.json")
-      masks_path = os.path.join(path, "masks.npz")
+      meta_path = os.path.join(path, f"object_{self.id}.json")
+      masks_path = os.path.join(path, f"masks_{self.id}.npz")
 
       masks_payload = {str(frame_idx): mask for frame_idx, mask in self.masks.items()}
       if masks_payload:
@@ -180,6 +180,10 @@ class ObjectList:
         obj.from_outputs_per_frame(outputs_per_frame)
     def add_object(self, obj: DetectedObject):
         self.objects.append(obj)
+    def save_objects(self, path: str):
+      os.makedirs(path, exist_ok=True)
+      for obj in self.objects:
+        obj.save(path)
     def label_objects(self, labels: Dict[int, str]):
         for obj_id, label in labels.items():
             for o in self.objects:

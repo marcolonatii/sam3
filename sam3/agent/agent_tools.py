@@ -278,5 +278,5 @@ def normalized_box_to_mask(normalized_box, img_width, img_height):
 
 
 def iou_mask(mask1, mask2):
-    'calculate the overlap between two masks'
+    'calculate the iou between two masks'
     return np.sum(mask1 & mask2) / np.sum(mask1 | mask2)

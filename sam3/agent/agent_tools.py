@@ -81,6 +81,7 @@ def visualize_formatted_frame_output(
     title_suffix="",
     prompt_info=None,
     save_path=None,
+    show=True,
 ):
     """
     Visualize segmentation masks on a video frame and optionally save to file.
@@ -169,7 +170,8 @@ def visualize_formatted_frame_output(
         ax.axis("off")
 
     plt.tight_layout()
-    plt.show()
+    if show:
+        plt.show()
 
     if save_path is not None:
         plt.savefig(save_path, bbox_inches="tight", pad_inches=0)

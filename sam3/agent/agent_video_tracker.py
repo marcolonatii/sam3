@@ -1,4 +1,6 @@
 from pydoc import describe
+import json
+import os
 import torch
 from torchvision.ops import masks_to_boxes
 import numpy as np
@@ -30,6 +32,51 @@ class DetectedObject:
         frame_idx: [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
         for frame_idx, box in self.bounding_boxes.items()
       }
+    def save(self, path: str) -> None:
+      os.makedirs(path, exist_ok=True)
+      meta_path = os.path.join(path, "object.json")
+      masks_path = os.path.join(path, "masks.npz")
+
+      masks_payload = {str(frame_idx): mask for frame_idx, mask in self.masks.items()}
+      if masks_payload:
+        np.savez_compressed(masks_path, **masks_payload)
+      else:
+        masks_path = None
+
+      data = {
+        "id": self.id,
+        "label": self.label,
+        "img_W": self.img_W,
+        "img_H": self.img_H,
+        "bounding_boxes": {str(k): v for k, v in self.bounding_boxes.items()},
+        "center_coordinates": {str(k): v for k, v in self.center_coordinates.items()},
+        "masks_path": masks_path,
+      }
+      with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+    @classmethod
+    def load(cls, path: str) -> "DetectedObject":
+      meta_path = os.path.join(path, "object.json")
+      with open(meta_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+      bounding_boxes = {int(k): v for k, v in data.get("bounding_boxes", {}).items()}
+      masks: Dict[int, np.ndarray] = {}
+      masks_path = data.get("masks_path")
+      if masks_path and os.path.exists(masks_path):
+        with np.load(masks_path, allow_pickle=False) as npz:
+          for key in npz.files:
+            masks[int(key)] = npz[key]
+
+      return cls(
+        label=data.get("label", ""),
+        id=data.get("id", 0),
+        img_W=data.get("img_W", 0),
+        img_H=data.get("img_H", 0),
+        boxes=bounding_boxes,
+        masks=masks,
+      )
     def from_outputs_per_frame(self, outputs_per_frame):
       for frame_idx, output in outputs_per_frame.items():
         for obj_id, binary_mask in output.items():

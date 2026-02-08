@@ -282,6 +282,23 @@ class Sam3TrackingTool:
             masks={0: response['outputs']['out_binary_masks'][i]} \
             ))
         return response
+    
+    def _reset_session(self) -> None:
+        _ = self.predictor.handle_request(
+            request=dict(
+                type="reset_session",
+                session_id=self.session_id,
+            )
+        )
+    #note: don't delete this
+    def _propagate(self) -> None:
+        outputs_per_frame = propagate(self.predictor, self.session_id, self.video_frames_for_vis)
+        new_objects = ObjectList()
+        new_objects.from_outputs_per_frame(outputs_per_frame)
+        self.object_list.merge(new_objects)
+        self.outputs_per_frame = outputs_per_frame
+    def _get_object_list(self) -> ObjectList:
+        return self.object_list
     def _save_objects(self, path: str) -> None:
         self.object_list.save_objects(path)
     def _restart_session(self) -> None:

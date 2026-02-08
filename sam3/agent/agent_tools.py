@@ -250,6 +250,13 @@ def add_prompt_for_session(predictor, prompt_text_str, frame_idx, bounding_boxes
 
 
 
+def xyxy_to_xywh(box):
+    x1, y1, x2, y2 = box
+    return np.array([x1, y1, x2 - x1, y2 - y1])
+
+def xywh_to_xyxy(box):
+    x, y, w, h = box
+    return np.array([x, y, x + w, y + h])
 
 def propagate(predictor, session_id, video_frames_for_vis):
   # now we propagate the outputs from frame 0 to the end of the video and collect all outputs

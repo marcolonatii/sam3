@@ -5,7 +5,7 @@ import torch
 from torchvision.ops import masks_to_boxes
 import numpy as np
 from ..visualization_utils import normalize_bbox
-from ..agent.agent_tools import add_prompt_for_session, propagate, get_frames, get_session, iou_mask, normalized_box_to_mask
+from ..agent.agent_tools import add_prompt_for_session, propagate, get_frames, get_session, iou_mask, normalized_box_to_mask, xywh_to_xyxy
 from typing import List, Tuple, Dict
 from ..model_builder import build_sam3_video_predictor
 from langchain.tools import tool
@@ -272,22 +272,22 @@ class Sam3TrackingTool:
     def _add_prompt(self, prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[int] = None) -> None:
         #todo: add objects here
         response = add_prompt_for_session(predictor=self.predictor, prompt_text_str=prompt_text_str, frame_idx=0, bounding_boxes=bounding_boxes, bounding_box_labels=bounding_box_labels, obj_ids=[], session_id=self.session_id, video_frames_for_vis=self.video_frames_for_vis)
+        for i in range(len(response['outputs']['out_obj_ids'])):
+          self.object_list.add_object(DetectedObject(\
+            label="", \
+            id=response['outputs']['out_obj_ids'][i], \
+            img_W=self.video_frames_for_vis[0].shape[1], \
+            img_H=self.video_frames_for_vis[0].shape[0], \
+            boxes={0: xywh_to_xyxy(response['outputs']['out_boxes_xywh'][i])}, \
+            masks={0: response['outputs']['out_binary_masks'][i]} \
+            ))
         return response
-    def _reset_session(self) -> None:
-        _ = self.predictor.handle_request(
-            request=dict(
-                type="reset_session",
-                session_id=self.session_id,
-            )
-        )
-    def _propagate(self) -> None:
-        outputs_per_frame = propagate(self.predictor, self.session_id, self.video_frames_for_vis)
-        new_objects = ObjectList()
-        new_objects.from_outputs_per_frame(outputs_per_frame)
-        self.object_list.merge(new_objects)
-        self.outputs_per_frame = outputs_per_frame
-    def _get_object_list(self) -> ObjectList:
-        return self.object_list
+    def _save_objects(self, path: str) -> None:
+        self.object_list.save_objects(path)
+    def _restart_session(self) -> None:
+        self.session_id = get_session(self.predictor, self.video_path)
+        self.object_list = ObjectList()
+
     def _get_session_id(self) -> str:
         return self.session_id
     def _get_video_path(self) -> str:

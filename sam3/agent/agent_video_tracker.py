@@ -48,8 +48,12 @@ class DetectedObject:
         "label": self.label,
         "img_W": self.img_W,
         "img_H": self.img_H,
-        "bounding_boxes": {str(k): v for k, v in self.bounding_boxes.items()},
-        "center_coordinates": {str(k): v for k, v in self.center_coordinates.items()},
+        "bounding_boxes": {
+          str(k): [float(x) for x in v] for k, v in self.bounding_boxes.items()
+        },
+        "center_coordinates": {
+          str(k): [float(x) for x in v] for k, v in self.center_coordinates.items()
+        },
         "masks_path": masks_path,
       }
       with open(meta_path, "w", encoding="utf-8") as f:

@@ -169,13 +169,13 @@ def visualize_formatted_frame_output(
         ax.axis("off")
 
     plt.tight_layout()
+    plt.show()
 
     if save_path is not None:
         plt.savefig(save_path, bbox_inches="tight", pad_inches=0)
         plt.close(fig)
         print(f"Saved frame {frame_idx} to {save_path}")
-    else:
-        plt.show()
+    
 
 
 # load "video_frames_for_vis" for visualization purposes (they are not used by the model)
@@ -219,7 +219,7 @@ def get_session(predictor, video_path):
   session_id = response["session_id"]
   return session_id
 # prompt_text_str = "player in white"
-def add_prompt_for_session(predictor, prompt_text_str, frame_idx, bounding_boxes, bounding_box_labels, obj_ids, session_id, video_frames_for_vis):
+def add_prompt_for_session(predictor, prompt_text_str, frame_idx, bounding_boxes, bounding_box_labels, obj_ids, session_id, video_frames_for_vis, save_path=None):
 #   frame_idx = 0  # add a text prompt on frame 0
   response = predictor.handle_request(
       request=dict(
@@ -242,7 +242,7 @@ def add_prompt_for_session(predictor, prompt_text_str, frame_idx, bounding_boxes
       outputs_list=[prepare_masks_for_visualization({frame_idx: out})],
       titles=["SAM 3 Dense Tracking outputs"],
       figsize=(6, 4),
-      save_path=f"./frames_output/frame_{frame_idx}.png"
+      save_path=save_path
   )
   return response
 

@@ -3,7 +3,7 @@ import torch
 from torchvision.ops import masks_to_boxes
 import numpy as np
 from ..visualization_utils import normalize_bbox
-from ..agent.agent_tools import add_prompt_for_session, propagate, get_frames, get_session, iou_mask
+from ..agent.agent_tools import add_prompt_for_session, propagate, get_frames, get_session, iou_mask, normalized_box_to_mask
 from typing import List, Tuple, Dict
 from ..model_builder import build_sam3_video_predictor
 from langchain.tools import tool
@@ -15,13 +15,17 @@ class DetectedObject:
     masks: Dict[int, np.ndarray] # frame_idx -> mask
     img_W: int
     img_H: int
+    
     def __init__(self, label: str, id: int, img_W: int, img_H: int, boxes: Dict[int, List[float]] = None, masks: Dict[int, np.ndarray] = None) -> None:
+      """
+      boxes: [x1, y1, x2, y2] in normalized coordinates of range 0~1
+      """
       self.img_W = img_W
       self.img_H = img_H
       self.id = id
       self.label = label
       self.bounding_boxes = boxes if boxes is not None else {}
-      self.masks = masks if masks is not None else {}
+      self.masks = masks if masks is not None else {frame_idx: normalized_box_to_mask(self.bounding_boxes[frame_idx], self.img_W, self.img_H) for frame_idx in self.bounding_boxes.keys()}
       self.center_coordinates = {
         frame_idx: [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
         for frame_idx, box in self.bounding_boxes.items()
@@ -38,6 +42,7 @@ class DetectedObject:
           box_xyxy = masks_to_boxes(binary_mask.unsqueeze(0)).squeeze()
           box_xyxy = normalize_bbox(box_xyxy, self.img_W, self.img_H)
           self.add_box(frame_idx, box_xyxy)
+          self.add_mask(frame_idx, binary_mask)
 
     def add_box(self, frame_idx, box):
       self.bounding_boxes[frame_idx] = box

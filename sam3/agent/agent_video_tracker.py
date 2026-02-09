@@ -44,10 +44,10 @@ class DetectedObject:
         masks_path = None
 
       data = {
-        "id": self.id,
+        "id": int(self.id),
         "label": self.label,
-        "img_W": self.img_W,
-        "img_H": self.img_H,
+        "img_W": int(self.img_W),
+        "img_H": int(self.img_H),
         "bounding_boxes": {
           str(k): [float(x) for x in v] for k, v in self.bounding_boxes.items()
         },
@@ -60,8 +60,8 @@ class DetectedObject:
         json.dump(data, f)
 
     @classmethod
-    def load(cls, path: str) -> "DetectedObject":
-      meta_path = os.path.join(path, "object.json")
+    def load(cls, path: str, id: int) -> "DetectedObject":
+      meta_path = os.path.join(path, f"object_{id}.json")
       with open(meta_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
@@ -305,6 +305,7 @@ class Sam3TrackingTool:
         return self.object_list
     def _save_objects(self, path: str) -> None:
         self.object_list.save_objects(path)
+
     def _restart_session(self) -> None:
         self.session_id = get_session(self.predictor, self.video_path)
         self.object_list = ObjectList()

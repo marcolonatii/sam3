@@ -183,6 +183,7 @@ class ObjectList:
       for obj in self.objects:
         obj.from_outputs_per_frame(outputs_per_frame)
     def add_object(self, obj: DetectedObject):
+      if not self.contains_object(obj):
         self.objects.append(obj)
     def save_objects(self, path: str):
       os.makedirs(path, exist_ok=True)

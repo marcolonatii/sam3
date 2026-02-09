@@ -82,6 +82,7 @@ def visualize_formatted_frame_output(
     prompt_info=None,
     save_path=None,
     show=True,
+    labels=None,
 ):
     """
     Visualize segmentation masks on a video frame and optionally save to file.
@@ -136,11 +137,14 @@ def visualize_formatted_frame_output(
             # Use colormap instead of global COLORS
             color = cmap(int(obj_id) % 20)[:3]
 
+            text = f"(id={obj_id})"
+            if labels is not None and obj_id in labels:
+                text = f"(id={obj_id}) {labels[obj_id]}"
             plot_bbox(
                 img_H,
                 img_W,
                 box_xyxy,
-                text=f"(id={obj_id})",
+                text=text,
                 box_format="XYXY",
                 color=color,
                 ax=ax,

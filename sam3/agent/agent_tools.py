@@ -1,5 +1,6 @@
 # from msvcrt import open_osfhandle
 import os
+import glob
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -284,8 +285,15 @@ def propagate(predictor, session_id, video_frames_for_vis):
 
 def normalized_box_to_mask(normalized_box, img_width, img_height):
   xmin, ymin, xmax, ymax = normalized_box
+
+  # Convert normalized floats → integer pixel indices and clamp to image bounds
+  x1 = max(0, min(img_width,  int(round(xmin * img_width))))
+  y1 = max(0, min(img_height, int(round(ymin * img_height))))
+  x2 = max(0, min(img_width,  int(round(xmax * img_width))))
+  y2 = max(0, min(img_height, int(round(ymax * img_height))))
+
   mask = np.zeros((img_height, img_width), dtype=np.uint8)
-  mask[ymin*img_height:ymax*img_height, xmin*img_width:xmax*img_width] = 1
+  mask[y1:y2, x1:x2] = 1
   return mask
 
 

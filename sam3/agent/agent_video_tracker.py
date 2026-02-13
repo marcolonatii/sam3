@@ -54,7 +54,8 @@ class DetectedObject:
         "center_coordinates": {
           str(k): [float(x) for x in v] for k, v in self.center_coordinates.items()
         },
-        "masks_path": masks_path,
+        #relative path to the json file
+        "masks_path": masks_path.split("/")[-1],
       }
       with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(data, f)
@@ -68,10 +69,15 @@ class DetectedObject:
       bounding_boxes = {int(k): v for k, v in data.get("bounding_boxes", {}).items()}
       masks: Dict[int, np.ndarray] = {}
       masks_path = data.get("masks_path")
-      if masks_path and os.path.exists(masks_path):
-        with np.load(masks_path, allow_pickle=False) as npz:
-          for key in npz.files:
-            masks[int(key)] = npz[key]
+      #todo: fix the path format
+      if masks_path:
+        # Resolve relative paths relative to the JSON file's directory
+        if not os.path.isabs(masks_path):
+          masks_path = os.path.join(path, masks_path)
+        if os.path.exists(masks_path):
+          with np.load(masks_path, allow_pickle=False) as npz:
+            for key in npz.files:
+              masks[int(key)] = npz[key]
 
       return cls(
         label=data.get("label", ""),
@@ -169,6 +175,12 @@ class DetectedObject:
       except KeyError:
         return False
       return iou_mask(mask1, mask2) > threshold
+    def update_bounding_boxes(self, bounding_box: Dict[int, List[float]]):
+      for frame_idx, box in bounding_box.items():
+        self.add_box(frame_idx, box)
+    def update_masks(self, masks: Dict[int, np.ndarray]):
+      for frame_idx, mask in masks.items():
+        self.add_mask(frame_idx, mask)
     
 
 
@@ -239,10 +251,14 @@ import base64
 
 class Frame:
     frame_np: np.ndarray
+    frame_pil: Image.Image
     saving_path: str
     frame_idx: int
+    img_W: int
+    img_H: int
     def _numpy_to_data_url(self, frame_np):
-        img = Image.fromarray(self.frame_np)  # assumes RGB
+        # img = Image.fromarray(self.frame_np)  # assumes RGB
+        img = self.frame_pil
         buffer = BytesIO()
         img.save(buffer, format="JPEG")
         image_bytes = buffer.getvalue()
@@ -250,10 +266,21 @@ class Frame:
         return f"data:image/jpeg;base64,{image_b64}"
     def __init__(self, frame_np: np.ndarray, saving_path: str):
         self.frame_np = frame_np
+        self.frame_pil = Image.fromarray(frame_np)
+        self.img_W = frame_np.shape[1]
+        self.img_H = frame_np.shape[0]
+    def from_pil(self, frame_pil: Image.Image):
+        self.frame_pil = frame_pil
+        self.frame_np = np.array(frame_pil)
+        self.img_W = frame_pil.width
+        self.img_H = frame_pil.height
     def to_data_url(self):
         return self._numpy_to_data_url()
     def save(self):
         Image.fromarray(self.frame_np).save(self.saving_path+"/frame_"+str(self.frame_idx)+".png")
+    def crop(self, box: List[float]):
+        x1, y1, x2, y2 = box
+        return self.frame_np[y1:y2, x1:x2]
 
 
 
@@ -298,9 +325,10 @@ class Sam3TrackingTool:
     #note: don't delete this
     def _propagate(self) -> None:
         outputs_per_frame = propagate(self.predictor, self.session_id, self.video_frames_for_vis)
-        new_objects = ObjectList()
-        new_objects.from_outputs_per_frame(outputs_per_frame)
-        self.object_list.merge(new_objects)
+        # new_objects = ObjectList()
+        # new_objects.from_outputs_per_frame(outputs_per_frame)
+        # self.object_list.merge(new_objects)
+        self.object_list.from_outputs_per_frame(outputs_per_frame)
         self.outputs_per_frame = outputs_per_frame
     def _get_object_list(self) -> ObjectList:
         return self.object_list

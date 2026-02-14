@@ -338,6 +338,12 @@ class Sam3TrackingTool:
     def _restart_session(self) -> None:
         self.session_id = get_session(self.predictor, self.video_path)
         self.object_list = ObjectList()
+        self.predictor.handle_request(
+          request=dict(
+            type="reset_session",
+            session_id=self.session_id
+          )
+        )
 
     def _get_session_id(self) -> str:
         return self.session_id

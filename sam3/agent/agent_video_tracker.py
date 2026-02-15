@@ -250,37 +250,69 @@ from io import BytesIO
 import base64
 
 class Frame:
-    frame_np: np.ndarray
+    frame_np: np.ndarray # not normalized
     frame_pil: Image.Image
     saving_path: str
     frame_idx: int
     img_W: int
     img_H: int
-    def _numpy_to_data_url(self, frame_np):
+    # object_dictionary: Dict[str, List[int]] # label -> coordinates of the object in the frame
+    def _numpy_to_data_url(self, frame_np: np.ndarray):
         # img = Image.fromarray(self.frame_np)  # assumes RGB
-        img = self.frame_pil
+        img = Image.fromarray(frame_np)
         buffer = BytesIO()
         img.save(buffer, format="JPEG")
         image_bytes = buffer.getvalue()
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
         return f"data:image/jpeg;base64,{image_b64}"
+    def to_data_url(self):
+        return self._numpy_to_data_url(self.frame_np)
     def __init__(self, frame_np: np.ndarray, saving_path: str):
         self.frame_np = frame_np
         self.frame_pil = Image.fromarray(frame_np)
         self.img_W = frame_np.shape[1]
         self.img_H = frame_np.shape[0]
+        self.saving_path = saving_path
     def from_pil(self, frame_pil: Image.Image):
         self.frame_pil = frame_pil
         self.frame_np = np.array(frame_pil)
         self.img_W = frame_pil.width
         self.img_H = frame_pil.height
-    def to_data_url(self):
-        return self._numpy_to_data_url()
-    def save(self):
-        Image.fromarray(self.frame_np).save(self.saving_path+"/frame_"+str(self.frame_idx)+".png")
-    def crop(self, box: List[float]):
+    def save(self, path=None):
+      if path is None:
+        path = self.saving_path
+      os.makedirs(path, exist_ok=True)
+      Image.fromarray(self.frame_np).save(os.path.join(path, "frame_"+str(self.frame_idx)+".png"))
+    def get_saving_path(self):
+        return self.saving_path
+    def get_frame_np(self):
+        return self.frame_np
+    def get_frame_pil(self):
+        return self.frame_pil
+    def get_img_W(self):
+        return self.img_W
+    def get_img_H(self):
+        return self.img_H
+    def get_frame_idx(self):
+        return self.frame_idx
+    def denormalized_box(self, box: List[float]):
+        """
+        box in normalized coordinates -> pixel coordinates
+        """
         x1, y1, x2, y2 = box
-        return self.frame_np[y1:y2, x1:x2]
+        return [x1 * self.img_W, y1 * self.img_H, x2 * self.img_W, y2 * self.img_H]
+    def get_normalized_box(self, box: List[float]):
+        """
+        box in pixel coordinates -> normalized coordinates
+        """
+        x1, y1, x2, y2 = box
+        return [x1 / self.img_W, y1 / self.img_H, x2 / self.img_W, y2 / self.img_H]
+    def cropped_frame_data_url(self, box: List[float]):
+        """
+        box in normalized coordinates -> data url
+        """
+        x1, y1, x2, y2 = self.denormalized_box(box)
+        return self._numpy_to_data_url(self.frame_np[y1:y2, x1:x2])
 
 
 
@@ -338,12 +370,6 @@ class Sam3TrackingTool:
     def _restart_session(self) -> None:
         self.session_id = get_session(self.predictor, self.video_path)
         self.object_list = ObjectList()
-        self.predictor.handle_request(
-          request=dict(
-            type="reset_session",
-            session_id=self.session_id
-          )
-        )
 
     def _get_session_id(self) -> str:
         return self.session_id

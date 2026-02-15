@@ -223,6 +223,10 @@ class ObjectList:
       for o in self.objects:
         if o.label == label:
           return o
+    def get_object_by_id(self, object_id: int):
+      for o in self.objects:
+        if o.id == object_id:
+          return o
     def new_id(self):
         return len(self.objects)
     #todo: would this cause memory leak? May need to deep copy
@@ -328,6 +332,7 @@ class Sam3TrackingTool:
         self.video_frames_for_vis = get_frames(self.video_path)
         self.session_id = get_session(self.predictor, self.video_path)
         self.object_list = ObjectList()
+        self.frame_dict = {frame_idx: Frame(frame_np=self.video_frames_for_vis[frame_idx], saving_path=os.path.join(video_path, "frames", f"frame_{frame_idx}.png")) for frame_idx in range(len(self.video_frames_for_vis))}
 
         #debug purpose
         self.outputs_per_frame = None
@@ -425,4 +430,12 @@ class Sam3TrackingTool:
                 return ",".join(self._detect_interaction(object1, object2, interaction_type, threshold))
             else:
                 return "Objects not found"
-        return [get_object_list, add_prompt, reset_session, propagate, detect_interaction]
+        @tool(description="Get the frame by frame index")
+        def get_frame(frame_idx: int) -> str:
+            if frame_idx not in self.frame_dict:
+                return "Frame not found"
+            return self.frame_dict[frame_idx].to_data_url()
+        @tool(description="Get the bounding box of an object by object id")
+        def get_object_boudingbox(object_id: int, frame_idx: int) -> str:
+            return self.object_list.get_object_by_id(object_id).get_box(frame_idx)
+        return [get_object_list, add_prompt, reset_session, propagate, detect_interaction, get_frame, get_object_boudingbox]

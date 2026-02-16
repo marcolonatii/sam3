@@ -13,3 +13,7 @@ uv run vllm serve Qwen/Qwen3-VL-8B-Thinking \
 - an react agent designed to do video analytics.
 - tooling: get_frame, tracking, positional understanding
 - features: langfuse observation
+
+
+### Langfuse setup
+[quick start on langfuse](https://langfuse.com/docs/observability/get-started)

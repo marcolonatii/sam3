@@ -33,6 +33,8 @@ dependencies = [
     "typing_extensions",
     "huggingface_hub",
     "setuptools==70.0.0",
+    "langfuse>=3.7.0",
+    "langchain-google-genai>=2.1.12",
 ]
 
 [project.optional-dependencies]
@@ -50,6 +52,7 @@ dev = [
     "pycocotools",
     "numba",
     "python-rapidjson",
+    "gdown"
 ]
 notebooks = [
     "matplotlib",

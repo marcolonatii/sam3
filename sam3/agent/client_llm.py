@@ -9,6 +9,31 @@ from typing import Any, Optional
 from openai import OpenAI
 
 
+def _extract_message_text(message: Any) -> Optional[str]:
+    """Extract text from OpenAI/vLLM response message objects."""
+    content = getattr(message, "content", None)
+    if isinstance(content, str) and content.strip():
+        return content
+    if isinstance(content, list):
+        text_parts = []
+        for item in content:
+            if isinstance(item, dict):
+                # Responses API / multimodal content chunk format
+                if item.get("type") == "text" and isinstance(item.get("text"), str):
+                    text_parts.append(item["text"])
+            elif isinstance(item, str):
+                text_parts.append(item)
+        merged = "\n".join([p for p in text_parts if p.strip()]).strip()
+        if merged:
+            return merged
+
+    # Some model backends may expose reasoning text separately.
+    reasoning = getattr(message, "reasoning_content", None)
+    if isinstance(reasoning, str) and reasoning.strip():
+        return reasoning
+    return None
+
+
 def get_image_base64_and_mime(image_path):
     """Convert image file to base64 string and get MIME type"""
     try:
@@ -107,17 +132,30 @@ def send_generate_request(
 
     try:
         print(f"🔍 Calling model {model}...")
-        response = client.chat.completions.create(
-            model=model,
-            messages=processed_messages,
-            max_completion_tokens=max_tokens,
-            n=1,
-        )
+        try:
+            # Newer OpenAI SDKs prefer max_completion_tokens.
+            response = client.chat.completions.create(
+                model=model,
+                messages=processed_messages,
+                max_completion_tokens=max_tokens,
+                n=1,
+            )
+        except TypeError:
+            # Older OpenAI SDKs accept max_tokens instead.
+            response = client.chat.completions.create(
+                model=model,
+                messages=processed_messages,
+                max_tokens=max_tokens,
+                n=1,
+            )
         # print(f"Received response: {response.choices[0].message}")
 
         # Extract the response content
         if response.choices and len(response.choices) > 0:
-            return response.choices[0].message.content
+            generated_text = _extract_message_text(response.choices[0].message)
+            if generated_text is None:
+                print(f"Unexpected empty response content: {response.choices[0].message}")
+            return generated_text
         else:
             print(f"Unexpected response format: {response}")
             return None

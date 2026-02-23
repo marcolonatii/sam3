@@ -242,7 +242,7 @@ class ObjectList:
       lines = ["ObjectList:"]
       for o in self.objects:
           lines.append(
-              f"  - id={o.id}, label={o.label}, tracked: {o.bounding_boxes is not None}"
+              f"  - id={o.id}, label={o.label}, tracked: {len(o.bounding_boxes) > 1}"
           )
       return "\n".join(lines)
 
@@ -319,9 +319,17 @@ class Frame:
         return self._numpy_to_data_url(self.frame_np[y1:y2, x1:x2])
 
 
-
-    
-
+json_schema = {
+    "total_pullup_count": "<number>"
+}
+agent_system_msg = f"""
+You are doing sport analysis on videos. Proceed with the tools
+1.List the objects of interest you want to track in order to answer the question
+2.Verify the object are tracked successfully by calling get_tracked_objects_info
+4.propagate the video with the functions
+5.Then after you get the tracks of the objects, use tools to analyze the position of the objects
+6.return your answer in <answer> ... <answer>
+7.the output format should be in json format with {json_schema}"""
 
 
 
@@ -332,7 +340,9 @@ class Sam3TrackingTool:
         self.video_frames_for_vis = get_frames(self.video_path)
         self.session_id = get_session(self.predictor, self.video_path)
         self.object_list = ObjectList()
+        self.object_to_track = ObjectList()
         self.frame_dict = {frame_idx: Frame(frame_np=self.video_frames_for_vis[frame_idx], saving_path=os.path.join(video_path, "frames", f"frame_{frame_idx}.png")) for frame_idx in range(len(self.video_frames_for_vis))}
+        self.prompt = None
 
         #debug purpose
         self.outputs_per_frame = None
@@ -340,10 +350,12 @@ class Sam3TrackingTool:
     #todo: recursively refine the object list
     def _add_prompt(self, prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[int] = None) -> None:
         #todo: add objects here
+        self.object_to_track = ObjectList()
+        self.prompt = prompt_text_str
         response = add_prompt_for_session(predictor=self.predictor, prompt_text_str=prompt_text_str, frame_idx=0, bounding_boxes=bounding_boxes, bounding_box_labels=bounding_box_labels, obj_ids=[], session_id=self.session_id, video_frames_for_vis=self.video_frames_for_vis)
         for i in range(len(response['outputs']['out_obj_ids'])):
-          self.object_list.add_object(DetectedObject(\
-            label="", \
+          self.object_to_track.add_object(DetectedObject(\
+            label=self.prompt, \
             id=response['outputs']['out_obj_ids'][i], \
             img_W=self.video_frames_for_vis[0].shape[1], \
             img_H=self.video_frames_for_vis[0].shape[0], \
@@ -365,16 +377,21 @@ class Sam3TrackingTool:
         # new_objects = ObjectList()
         # new_objects.from_outputs_per_frame(outputs_per_frame)
         # self.object_list.merge(new_objects)
-        self.object_list.from_outputs_per_frame(outputs_per_frame)
+        self.object_to_track.from_outputs_per_frame(outputs_per_frame)
         self.outputs_per_frame = outputs_per_frame
-    def _get_object_list(self) -> ObjectList:
+        # todo: save the objects
+        # self._save_objects(os.path.join(self.video_path, "sam_out", self.prompt))
+        self.object_list.merge(self.object_to_track)
+    def _get_all_objects(self) -> ObjectList:
         return self.object_list
+    def _get_object_to_track(self) -> ObjectList:
+        return self.object_to_track
     def _save_objects(self, path: str) -> None:
-        self.object_list.save_objects(path)
+        self.object_to_track.save_objects(path)
 
     def _restart_session(self) -> None:
         self.session_id = get_session(self.predictor, self.video_path)
-        self.object_list = ObjectList()
+        self.object_to_track = ObjectList()
 
     def _get_session_id(self) -> str:
         return self.session_id
@@ -382,7 +399,8 @@ class Sam3TrackingTool:
         return self.video_path
     def _get_video_frames_for_vis(self) -> List[np.ndarray]:
         return self.video_frames_for_vis
-    def _detect_interaction(self, object1: str, object2: str, interaction_type: str, threshold: float = 0.05) -> List[int]:
+    def _detect_interaction_by_label(self, object1: str, object2: str, interaction_type: str, threshold: float = 0.05) -> List[int]:
+        # todo: multiple objects with the same label
         obj1 = self.object_list.get_object_by_label(object1)
         obj2 = self.object_list.get_object_by_label(object2)
         if obj1 is None or obj2 is None:
@@ -399,37 +417,37 @@ class Sam3TrackingTool:
             the output will be saved in ./frames_output/frame_0.png \
             """
         add_prompt_description_temp = """
-            text prompt to add to SAM3 video tracker, \
-            the text prompt should be nouns separated by comma, \
-            for example, "person, car, tree" \
-            the output will be saved in ./frames_output/frame_0.png \
+            prompt to identify a single object in the video, \
+            the text prompt should be noun of a single object\
         """
-        @tool(description="Get the list of objects detected in the video")
-        def get_object_list() -> str:
-            return "".join(self._get_object_list().__str__())
+        @tool(description="Get the information of the tracked objects")
+        def get_tracked_objects_info() -> str:
+            return self._get_all_objects().__str__()
+        @tool(description="Get the list of objects you are tracking")
+        def get_tracking_objects() -> str:
+            return self._get_object_to_track().__str__()
         @tool(description=add_prompt_description_temp)
         # def add_prompt(prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[str] = None) -> str:
-        def add_prompt(prompt_text_str: str) -> str:
+        def identify_object_by_prompt(prompt_text_str: str) -> str:
             response = self._add_prompt(prompt_text_str)
-            for obj_id in response['outputs']['out_obj_ids']:
-                #todo: add box for first frame
-                self.object_list.add_object(DetectedObject(label="", id=obj_id, img_W=self.video_frames_for_vis[0].shape[1], img_H=self.video_frames_for_vis[0].shape[0]))
-            #todo: shouldn't return success if no objects are added
-            return "now the tracked objects are: \n" + "".join(self._get_object_list().__str__())
+            return "objects identified: \n" + "".join(self._get_object_to_track().__str__())
         @tool(description="Reset the video tracker session")
-        def reset_session() -> str:
+        def reset_tracker() -> str:
             self._reset_session()
             return "Session reset successfully"
-        @tool(description="Propagate the video tracker")
-        def propagate() -> str:
+        @tool(description="Track the object in the video")
+        def track_objects(object_name:str) -> str:
+            response = self._add_prompt(object_name)
             self._propagate()
-            return "Propagated successfully"
+            return "Object " + object_name + " tracked successfully"
         @tool(description="Detect interaction (near, above, below, colliding) between two objects, return frames if the interaction happens")
-        def detect_interaction(object1: str, object2: str, interaction_type: str, threshold: float = 0.05) -> str:
-            if self.object_list.contains_object_str(object1) and self.object_list.contains_object_str(object2):
-                return ",".join(self._detect_interaction(object1, object2, interaction_type, threshold))
-            else:
+        def detect_interaction(object1_id: int, object2_id: int, interaction_type: str, threshold: float = 0.05) -> str:
+            obj1 = self.object_list.get_object_by_id(object1_id)
+            obj2 = self.object_list.get_object_by_id(object2_id)
+            if obj1 is None or obj2 is None:
                 return "Objects not found"
+            fn = getattr(obj1, interaction_type)
+            return str([frame_idx for frame_idx in range(len(self.video_frames_for_vis)) if fn(frame_idx, obj2, threshold)])
         @tool(description="Get the frame by frame index")
         def get_frame(frame_idx: int) -> str:
             if frame_idx not in self.frame_dict:
@@ -438,4 +456,4 @@ class Sam3TrackingTool:
         @tool(description="Get the bounding box of an object by object id")
         def get_object_boudingbox(object_id: int, frame_idx: int) -> str:
             return self.object_list.get_object_by_id(object_id).get_box(frame_idx)
-        return [get_object_list, add_prompt, reset_session, propagate, detect_interaction, get_frame, get_object_boudingbox]
+        return [get_tracking_objects, identify_object_by_prompt, reset_tracker, track_objects, detect_interaction, get_frame, get_object_boudingbox, get_tracked_objects_info]

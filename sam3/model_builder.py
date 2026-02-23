@@ -2,6 +2,7 @@
 
 # pyre-unsafe
 
+import io
 import os
 from typing import Optional
 
@@ -774,8 +775,12 @@ def build_sam3_video_model(
     if load_from_HF and checkpoint_path is None:
         checkpoint_path = download_ckpt_from_hf()
     if checkpoint_path is not None:
-        with g_pathmgr.open(checkpoint_path, "rb") as f:
+        if isinstance(checkpoint_path, (bytes, io.BytesIO)):
+            f = io.BytesIO(checkpoint_path) if isinstance(checkpoint_path, bytes) else checkpoint_path
             ckpt = torch.load(f, map_location="cpu", weights_only=True)
+        else:
+            with g_pathmgr.open(checkpoint_path, "rb") as f:
+                ckpt = torch.load(f, map_location="cpu", weights_only=True)
         if "model" in ckpt and isinstance(ckpt["model"], dict):
             ckpt = ckpt["model"]
 

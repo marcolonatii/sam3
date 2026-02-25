@@ -52,7 +52,7 @@ def download_item(item, output_folder):
         if response.status_code == 200:
             with open(output_folder / f"{uuid}{EXTENSION}", "wb") as f:
                 f.write(response.content)
-    except:
+    except Exception:
         print("errored", item)
         return
 

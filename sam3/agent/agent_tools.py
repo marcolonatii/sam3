@@ -187,15 +187,55 @@ def visualize_formatted_frame_output(
 
 # load "video_frames_for_vis" for visualization purposes (they are not used by the model)
 # video_path="/content/football.mp4"
-def get_frames(video_path):
+def get_frames(video_path, target_fps=None, source_fps=None):
+  """
+  Load visualization frames from an mp4 file or a directory of jpgs.
+
+  Args:
+      video_path: Path to a .mp4 file or a directory containing .jpg frames.
+      target_fps: If provided, downsample to this fps (must be > 0).
+      source_fps: Required only when video_path is a directory and target_fps is set.
+                  Represents the original frame rate of the image sequence.
+  """
+  if target_fps is not None and target_fps <= 0:
+      raise ValueError(f"target_fps must be > 0, got {target_fps}")
+  if source_fps is not None and source_fps <= 0:
+      raise ValueError(f"source_fps must be > 0, got {source_fps}")
+
+  def _should_keep(frame_idx, fps, next_keep_time, target_frame_period):
+      frame_time = frame_idx / fps
+      if frame_time + 1e-9 >= next_keep_time:
+          return True, next_keep_time + target_frame_period
+      return False, next_keep_time
+
   if isinstance(video_path, str) and video_path.endswith(".mp4"):
       cap = cv2.VideoCapture(video_path)
+      source_video_fps = float(cap.get(cv2.CAP_PROP_FPS))
       video_frames_for_vis = []
+
+      use_all_frames = (
+          target_fps is None
+          or source_video_fps <= 0
+          or target_fps >= source_video_fps
+      )
+      if target_fps is not None and source_video_fps <= 0:
+          print("Warning: could not read source video fps. Falling back to all frames.")
+
+      frame_idx = 0
+      next_keep_time = 0.0
+      target_frame_period = 0.0 if target_fps is None else 1.0 / target_fps
       while True:
           ret, frame = cap.read()
           if not ret:
               break
-          video_frames_for_vis.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+          keep_frame = use_all_frames
+          if not use_all_frames:
+              keep_frame, next_keep_time = _should_keep(
+                  frame_idx, source_video_fps, next_keep_time, target_frame_period
+              )
+          if keep_frame:
+              video_frames_for_vis.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+          frame_idx += 1
       cap.release()
   else:
       video_frames_for_vis = glob.glob(os.path.join(video_path, "*.jpg"))
@@ -211,6 +251,23 @@ def get_frames(video_path):
               f"falling back to lexicographic sort."
           )
           video_frames_for_vis.sort()
+
+      if target_fps is not None:
+          if source_fps is None:
+              raise ValueError(
+                  "source_fps is required when using target_fps with image directories."
+              )
+          if target_fps < source_fps:
+              sampled_frames = []
+              next_keep_time = 0.0
+              target_frame_period = 1.0 / target_fps
+              for frame_idx, frame_path in enumerate(video_frames_for_vis):
+                  keep_frame, next_keep_time = _should_keep(
+                      frame_idx, source_fps, next_keep_time, target_frame_period
+                  )
+                  if keep_frame:
+                      sampled_frames.append(frame_path)
+              video_frames_for_vis = sampled_frames
   return video_frames_for_vis
 
 

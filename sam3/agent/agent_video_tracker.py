@@ -174,6 +174,7 @@ class DetectedObject:
         mask2 = object.get_mask(frame_idx)
       except KeyError:
         return False
+      # todo: shouldn't we use iom_mask?
       return iou_mask(mask1, mask2) > threshold
     def update_bounding_boxes(self, bounding_box: Dict[int, List[float]]):
       for frame_idx, box in bounding_box.items():
@@ -341,7 +342,10 @@ class Sam3TrackingTool:
         self.session_id = get_session(self.predictor, self.video_path)
         self.object_list = ObjectList()
         self.object_to_track = ObjectList()
-        self.frame_dict = {frame_idx: Frame(frame_np=self.video_frames_for_vis[frame_idx], saving_path=os.path.join(video_path, "frames", f"frame_{frame_idx}.png")) for frame_idx in range(len(self.video_frames_for_vis))}
+        if isinstance(self.video_frames_for_vis[0], np.ndarray):
+          self.frame_dict = {frame_idx: Frame(frame_np=self.video_frames_for_vis[frame_idx], saving_path=os.path.join(video_path, "frames", f"frame_{frame_idx}.png")) for frame_idx in range(len(self.video_frames_for_vis))}
+        else:
+          self.frame_dict = {frame_idx: Frame(frame_np=np.array(Image.open(self.video_frames_for_vis[frame_idx])), saving_path=os.path.join(video_path, "frames", f"frame_{frame_idx}.png")) for frame_idx in range(len(self.video_frames_for_vis))}
         self.prompt = None
 
         #debug purpose

@@ -268,7 +268,8 @@ def get_frames(video_path, target_fps=None, source_fps=None):
                   if keep_frame:
                       sampled_frames.append(frame_path)
               video_frames_for_vis = sampled_frames
-  return video_frames_for_vis
+      video_frames_for_vis = [np.array(Image.open(frame_path)) for frame_path in video_frames_for_vis]
+  return 
 
 
 

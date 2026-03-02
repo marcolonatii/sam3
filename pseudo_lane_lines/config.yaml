@@ -1,0 +1,64 @@
+# SAM3 Lane Line Detection Configuration
+# ==========================================
+
+# Inference mode for video files:
+#   - "video": Session-based video tracking with temporal propagation (recommended)
+#              Objects are detected on prompt_frame and tracked across all frames.
+#              Provides temporal consistency - same object keeps same ID across frames.
+#   - "frame": Per-frame inference without temporal tracking
+#              Each frame is processed independently. Faster but no temporal consistency.
+mode: "video"
+
+# Lane type definitions with prompts and colors
+# Each lane type gets:
+#   - A specific text prompt for detection
+#   - A unique color for visualization
+#   - All instances of that type share the same color
+#
+# NOTE: For nighttime/low-light videos, use simpler, more general prompts
+# SAM3 works better with visual descriptions rather than semantic labels
+lane_types:
+  - name: "lane_marking"
+    prompt: "white paint on road"
+    color: [0, 255, 255]  # Cyan
+    
+  - name: "curb_marking"
+    prompt: "painted curb"
+    color: [255, 0, 255]  # Magenta
+
+  - name: "dotted_line"
+    prompt: "dotted line on road"
+    color: [0, 255, 0]  # Green
+
+# Inference settings
+inference:
+  # Frame(s) to add text prompts for detection
+  # Options:
+  #   - Single frame: prompt_frame: 24
+  #   - Multiple frames: prompt_frames: [0, 24, 50]
+  #   - Every N frames: prompt_interval: 5  (detects on frames 0, 5, 10, 15, ...)
+  # 
+  # Using prompt_interval gives better coverage but takes longer.
+  # Recommended: prompt_interval: 5-10 for good balance of accuracy and speed.
+  prompt_interval: 10  # Detect every 5 frames for better coverage
+  
+  # Mask overlay transparency (0.0 = invisible, 1.0 = opaque)
+  alpha: 0.7
+  
+  # Whether to show frame numbers on output video
+  show_frame_numbers: true
+  
+  # Confidence threshold for detections (only used in frame mode)
+  confidence_threshold: 0.3
+
+# Output settings
+output:
+  # Add timestamp prefix to output files (prevents overwriting)
+  timestamp_prefix: true
+  
+  # Save individual frame images (all frames) - set to false to save only on extract
+  save_frame_images: false
+  
+  # Output video codec
+  codec: "mp4v"
+

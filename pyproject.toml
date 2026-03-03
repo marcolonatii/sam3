@@ -56,6 +56,7 @@ dev = [
 ]
 notebooks = [
     "matplotlib",
+    "ipykernel",
     "jupyter",
     "notebook",
     "ipywidgets",

@@ -5,10 +5,100 @@ import torch
 from torchvision.ops import masks_to_boxes
 import numpy as np
 from ..visualization_utils import normalize_bbox
-from ..agent.agent_tools import add_prompt_for_session, propagate, get_frames, get_session, iou_mask, normalized_box_to_mask, xywh_to_xyxy
+from ..agent.agent_tools import add_prompt_for_session, propagate, get_frames, get_session, iou_mask, normalized_box_to_mask, xywh_to_xyxy, visualize_formatted_frame_output
+from ..visualization_utils import prepare_masks_for_visualization
 from typing import List, Tuple, Dict
 from ..model_builder import build_sam3_video_predictor
 from langchain.tools import tool
+from tqdm import tqdm
+
+from PIL import Image
+from io import BytesIO
+import base64
+class Frame:
+    frame_np: np.ndarray # not normalized
+    frame_pil: Image.Image
+    saving_path: str
+    frame_idx: int
+    img_W: int
+    img_H: int
+    # object_dictionary: Dict[str, List[int]] # label -> coordinates of the object in the frame
+    def _numpy_to_data_url(self, frame_np: np.ndarray):
+        # img = Image.fromarray(self.frame_np)  # assumes RGB
+        img = Image.fromarray(frame_np)
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG")
+        image_bytes = buffer.getvalue()
+        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+        return f"data:image/jpeg;base64,{image_b64}"
+    def to_data_url(self):
+        return self._numpy_to_data_url(self.frame_np)
+    def __init__(self, frame_np: np.ndarray, saving_path: str):
+        self.frame_np = frame_np
+        self.frame_pil = Image.fromarray(frame_np)
+        self.img_W = frame_np.shape[1]
+        self.img_H = frame_np.shape[0]
+        self.saving_path = saving_path
+    def from_pil(self, frame_pil: Image.Image):
+        self.frame_pil = frame_pil
+        self.frame_np = np.array(frame_pil)
+        self.img_W = frame_pil.width
+        self.img_H = frame_pil.height
+    def save(self, path=None):
+      if path is None:
+        path = self.saving_path
+      os.makedirs(path, exist_ok=True)
+      Image.fromarray(self.frame_np).save(os.path.join(path, "frame_"+str(self.frame_idx)+".png"))
+    def get_saving_path(self):
+        return self.saving_path
+    def get_frame_np(self):
+        return self.frame_np
+    def get_frame_pil(self):
+        return self.frame_pil
+    def get_img_W(self):
+        return self.img_W
+    def get_img_H(self):
+        return self.img_H
+    def get_frame_idx(self):
+        return self.frame_idx
+    def denormalized_box(self, box: List[float]):
+        """
+        box in normalized coordinates -> pixel coordinates
+        """
+        x1, y1, x2, y2 = box
+        return [x1 * self.img_W, y1 * self.img_H, x2 * self.img_W, y2 * self.img_H]
+    def get_normalized_box(self, box: List[float]):
+        """
+        box in pixel coordinates -> normalized coordinates
+        """
+        x1, y1, x2, y2 = box
+        return [x1 / self.img_W, y1 / self.img_H, x2 / self.img_W, y2 / self.img_H]
+    def cropped_frame_data_url(self, box: List[float]):
+        """
+        box in normalized coordinates -> data url
+        """
+        x1, y1, x2, y2 = self.denormalized_box(box)
+        return self._numpy_to_data_url(self.frame_np[y1:y2, x1:x2])
+    def annotate
+    
+
+
+
+
+#an decorator to note the image in the output string
+class ImageDecorator:
+  def __init__(self, decorator_str: str = "__image__") -> None:
+    self.decorator_str = decorator_str
+  def get_decorator_str(self) -> str:
+    return self.decorator_str
+  #todo: get_images
+  def get_image_from_string(self, string: str):
+    return string.split(self.decorator_str)[1]
+  def append_image_to_string(self, string: str, frame: Frame) -> str:
+    return string + self.decorator_str + frame.to_data_url()
+
+
+
 class DetectedObject:
     id: int
     label: str
@@ -87,8 +177,8 @@ class DetectedObject:
         boxes=bounding_boxes,
         masks=masks,
       )
-    def from_outputs_per_frame(self, outputs_per_frame):
-      for frame_idx, output in outputs_per_frame.items():
+    def from_outputs_per_frame(self, outputs_per_frame, need_box: bool = True):
+      for frame_idx, output in tqdm(outputs_per_frame.items()):
         for obj_id, binary_mask in output.items():
           if obj_id != self.id:
             continue
@@ -96,9 +186,10 @@ class DetectedObject:
             binary_mask = torch.tensor(binary_mask)
           if not binary_mask.any():
             continue
-          box_xyxy = masks_to_boxes(binary_mask.unsqueeze(0)).squeeze()
-          box_xyxy = normalize_bbox(box_xyxy, self.img_W, self.img_H)
-          self.add_box(frame_idx, box_xyxy)
+          if need_box:
+            box_xyxy = masks_to_boxes(binary_mask.unsqueeze(0)).squeeze()
+            box_xyxy = normalize_bbox(box_xyxy, self.img_W, self.img_H)
+            self.add_box(frame_idx, box_xyxy)
           self.add_mask(frame_idx, binary_mask)
 
     def add_box(self, frame_idx, box):
@@ -192,9 +283,9 @@ class ObjectList:
     objects: List[DetectedObject] = []
     def __init__(self):
         self.objects = []
-    def from_outputs_per_frame(self, outputs_per_frame):
+    def from_outputs_per_frame(self, outputs_per_frame, need_box: bool = True):
       for obj in self.objects:
-        obj.from_outputs_per_frame(outputs_per_frame)
+        obj.from_outputs_per_frame(outputs_per_frame, need_box=need_box)
     def add_object(self, obj: DetectedObject):
       if not self.contains_object(obj):
         self.objects.append(obj)
@@ -250,76 +341,6 @@ class ObjectList:
     # Define the tool
 
 
-from PIL import Image
-from io import BytesIO
-import base64
-
-class Frame:
-    frame_np: np.ndarray # not normalized
-    frame_pil: Image.Image
-    saving_path: str
-    frame_idx: int
-    img_W: int
-    img_H: int
-    # object_dictionary: Dict[str, List[int]] # label -> coordinates of the object in the frame
-    def _numpy_to_data_url(self, frame_np: np.ndarray):
-        # img = Image.fromarray(self.frame_np)  # assumes RGB
-        img = Image.fromarray(frame_np)
-        buffer = BytesIO()
-        img.save(buffer, format="JPEG")
-        image_bytes = buffer.getvalue()
-        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-        return f"data:image/jpeg;base64,{image_b64}"
-    def to_data_url(self):
-        return self._numpy_to_data_url(self.frame_np)
-    def __init__(self, frame_np: np.ndarray, saving_path: str):
-        self.frame_np = frame_np
-        self.frame_pil = Image.fromarray(frame_np)
-        self.img_W = frame_np.shape[1]
-        self.img_H = frame_np.shape[0]
-        self.saving_path = saving_path
-    def from_pil(self, frame_pil: Image.Image):
-        self.frame_pil = frame_pil
-        self.frame_np = np.array(frame_pil)
-        self.img_W = frame_pil.width
-        self.img_H = frame_pil.height
-    def save(self, path=None):
-      if path is None:
-        path = self.saving_path
-      os.makedirs(path, exist_ok=True)
-      Image.fromarray(self.frame_np).save(os.path.join(path, "frame_"+str(self.frame_idx)+".png"))
-    def get_saving_path(self):
-        return self.saving_path
-    def get_frame_np(self):
-        return self.frame_np
-    def get_frame_pil(self):
-        return self.frame_pil
-    def get_img_W(self):
-        return self.img_W
-    def get_img_H(self):
-        return self.img_H
-    def get_frame_idx(self):
-        return self.frame_idx
-    def denormalized_box(self, box: List[float]):
-        """
-        box in normalized coordinates -> pixel coordinates
-        """
-        x1, y1, x2, y2 = box
-        return [x1 * self.img_W, y1 * self.img_H, x2 * self.img_W, y2 * self.img_H]
-    def get_normalized_box(self, box: List[float]):
-        """
-        box in pixel coordinates -> normalized coordinates
-        """
-        x1, y1, x2, y2 = box
-        return [x1 / self.img_W, y1 / self.img_H, x2 / self.img_W, y2 / self.img_H]
-    def cropped_frame_data_url(self, box: List[float]):
-        """
-        box in normalized coordinates -> data url
-        """
-        x1, y1, x2, y2 = self.denormalized_box(box)
-        return self._numpy_to_data_url(self.frame_np[y1:y2, x1:x2])
-
-
 json_schema = {
     "total_pullup_count": "<number>"
 }
@@ -350,6 +371,7 @@ class Sam3TrackingTool:
 
         #debug purpose
         self.outputs_per_frame = None
+        self.image_decorator = ImageDecorator()
 
     #todo: recursively refine the object list
     def _add_prompt(self, prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[int] = None) -> None:
@@ -376,12 +398,12 @@ class Sam3TrackingTool:
             )
         )
     #note: don't delete this
-    def _propagate(self) -> None:
+    def _propagate(self, need_box: bool = True) -> None:
         outputs_per_frame = propagate(self.predictor, self.session_id, self.video_frames_for_vis)
         # new_objects = ObjectList()
         # new_objects.from_outputs_per_frame(outputs_per_frame)
         # self.object_list.merge(new_objects)
-        self.object_to_track.from_outputs_per_frame(outputs_per_frame)
+        self.object_to_track.from_outputs_per_frame(outputs_per_frame, need_box=need_box)
         self.outputs_per_frame = outputs_per_frame
         # todo: save the objects
         # self._save_objects(os.path.join(self.video_path, "sam_out", self.prompt))
@@ -411,7 +433,17 @@ class Sam3TrackingTool:
             return []
         fn = getattr(obj1, interaction_type)
         return [frame_idx for frame_idx in range(len(self.video_frames_for_vis)) if fn(frame_idx, obj2, threshold)]
-            
+    def _save_visualizations(self, path: str) -> None:
+        os.makedirs(path, exist_ok=True)
+        for frame_idx in range(len(self.video_frames_for_vis)):
+          visualize_formatted_frame_output(
+              frame_idx=frame_idx,
+              video_frames=self.video_frames_for_vis,
+              outputs_list=self.outputs_per_frame,
+              titles=["SAM 3 Dense Tracking outputs"],
+              figsize=(6, 4),
+              save_path=os.path.join(path, f"frame_{frame_idx}.png")
+            )
     def _llm_tools(self):
         add_prompt_description = """
             Add a prompt to the SAM3 video tracker, \

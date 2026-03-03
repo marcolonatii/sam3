@@ -79,7 +79,6 @@ class Frame:
         """
         x1, y1, x2, y2 = self.denormalized_box(box)
         return self._numpy_to_data_url(self.frame_np[y1:y2, x1:x2])
-    def annotate
     
 
 

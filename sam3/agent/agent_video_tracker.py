@@ -567,6 +567,7 @@ class Sam3TrackingTool:
                 outputs_list=self.outputs_per_frame,
                 titles=["SAM 3 Dense Tracking outputs"],
                 figsize=(6, 4),
+                show=False,
                 save_path=os.path.join(path, f"frame_{frame_idx}.png"),
             )
 

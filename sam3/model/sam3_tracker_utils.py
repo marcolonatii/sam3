@@ -6,7 +6,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from numpy.typing import NDArray
-from sam3.model.edt import edt_triton
 
 
 def sample_box_points(
@@ -155,6 +154,9 @@ def sample_one_point_from_error_center(gt_masks, pred_masks, padding=True):
     assert pred_masks.dtype == torch.bool and pred_masks.shape == gt_masks.shape
 
     B, _, H, W = gt_masks.shape
+
+    # Lazy import triton to allow it to run on platforms without it
+    from sam3.model.edt import edt_triton
 
     # false positive region, a new point sampled in this region should have
     # negative label to correct the FP error

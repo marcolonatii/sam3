@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 import torch
 import torch.utils.data
 import torchvision
-from decord import cpu, VideoReader
+import av
 from iopath.common.file_io import g_pathmgr
 from PIL import Image as PILImage
 from PIL.Image import DecompressionBombError
@@ -202,17 +202,27 @@ class CustomCocoDetectionAPI(VisionDataset):
             try:
                 if ".mp4" in path and path[-4:] == ".mp4":
                     # Going to load a video frame
-                    video_path, frame = path.split("@")
-                    video = VideoReader(video_path, ctx=cpu(0))
-                    # Convert to PIL image
-                    all_images.append(
-                        (
-                            img_id,
-                            torchvision.transforms.ToPILImage()(
-                                video[int(frame)].asnumpy()
-                            ),
-                        )
+                    video_path, frame_idx = path.split("@")
+                    frame_idx = int(frame_idx)
+                    container = av.open(video_path)
+                    stream = container.streams.video[0]
+                    fps = float(stream.average_rate)
+                    seek_time = frame_idx / fps
+                    container.seek(
+                        int(seek_time * av.time_base), any_frame=False
                     )
+                    pil_frame = None
+                    try:
+                        for packet in container.demux(stream):
+                            for f in packet.decode():
+                                pil_frame = f.to_image().convert("RGB")
+                                break
+                            if pil_frame is not None:
+                                break
+                    finally:
+                        container.close()
+                    # Convert to PIL image
+                    all_images.append((img_id, pil_frame))
                 else:
                     with g_pathmgr.open(path, "rb") as fopen:
                         all_images.append((img_id, PILImage.open(fopen).convert("RGB")))

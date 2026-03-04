@@ -506,6 +506,7 @@ class Sam3TrackingTool:
             self.video_frames_for_vis[0].shape[0],
             self.video_frames_for_vis[0].shape[1],
         )
+        self.object_to_track.from_outputs_per_frame(outputs_per_frame, need_box=need_box)
         for obj_id in new_ids:
             new_obj = DetectedObject(
                 label=self.prompt or "",

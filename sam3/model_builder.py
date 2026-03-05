@@ -693,7 +693,7 @@ def build_sam3_video_model(
     visual_neck = _create_vision_backbone(device=device)
     text_encoder = _create_text_encoder(bpe_path)
     backbone = SAM3VLBackbone(scalp=1, visual=visual_neck, text=text_encoder)
-    transformer = _create_sam3_transformer(has_presence_token=has_presence_token)
+    transformer = _create_sam3_transformer(has_presence_token=has_presence_token, device=device)
     segmentation_head: UniversalSegmentationHead = _create_segmentation_head()
     input_geometry_encoder = _create_geometry_encoder()
 

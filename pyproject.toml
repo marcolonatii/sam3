@@ -35,6 +35,7 @@ dependencies = [
     "setuptools==70.0.0",
     "langfuse>=3.7.0",
     "langchain-google-genai>=2.1.12",
+    "ipykernel>=6.31.0",
 ]
 
 [project.optional-dependencies]

@@ -1,6 +1,7 @@
 # from msvcrt import open_osfhandle
 import os
 import glob
+from io import BytesIO
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -175,13 +176,22 @@ def visualize_formatted_frame_output(
         ax.axis("off")
 
     plt.tight_layout()
+
+    if save_path is not None:
+        fig.savefig(save_path, bbox_inches="tight", pad_inches=0)
+        print(f"Saved frame {frame_idx} to {save_path}")
+
+    # Render figure to an annotated numpy image (RGB)
+    buf = BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+    buf.seek(0)
+    annotated_img = np.array(Image.open(buf).convert("RGB"))
+
     if show:
         plt.show()
 
-    if save_path is not None:
-        plt.savefig(save_path, bbox_inches="tight", pad_inches=0)
-        plt.close(fig)
-        print(f"Saved frame {frame_idx} to {save_path}")
+    plt.close(fig)
+    return annotated_img
     
 
 

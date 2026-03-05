@@ -4,7 +4,7 @@ import os
 import torch
 from torchvision.ops import masks_to_boxes
 import numpy as np
-from ..visualization_utils import normalize_bbox
+from ..visualization_utils import normalize_bbox, prepare_masks_for_visualization
 from ..agent.agent_tools import (
     add_prompt_for_session,
     propagate,
@@ -15,7 +15,6 @@ from ..agent.agent_tools import (
     xywh_to_xyxy,
     visualize_formatted_frame_output,
 )
-from ..visualization_utils import prepare_masks_for_visualization
 from typing import List, Tuple, Dict
 from ..model_builder import build_sam3_video_predictor
 from langchain.tools import tool
@@ -122,6 +121,8 @@ class ImageDecorator:
 
     def append_image_to_string(self, string: str, frame: Frame) -> str:
         return string + self.decorator_str + frame.to_data_url()
+    def image_count(self, string: str) -> int:
+        return string.count(self.decorator_str)
 
 
 class DetectedObject:
@@ -507,6 +508,7 @@ class Sam3TrackingTool:
             self.video_frames_for_vis[0].shape[1],
         )
         self.object_to_track.from_outputs_per_frame(outputs_per_frame, need_box=need_box)
+        self.object_list.merge(self.object_to_track)
         for obj_id in new_ids:
             new_obj = DetectedObject(
                 label=self.prompt or "",
@@ -517,10 +519,9 @@ class Sam3TrackingTool:
                 masks={},
             )
             new_obj.from_outputs_per_frame(outputs_per_frame, need_box=need_box)
-            self.object_to_track.add_object(new_obj)
+            self.object_list.add_object(new_obj)
 
         self.outputs_per_frame = outputs_per_frame
-        self.object_list.merge(self.object_to_track)
 
     def _get_all_objects(self) -> ObjectList:
         return self.object_list
@@ -597,10 +598,19 @@ class Sam3TrackingTool:
         # def add_prompt(prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[str] = None) -> str:
         def identify_object_by_prompt(prompt_text_str: str) -> str:
             response = self._add_prompt(prompt_text_str)
-            return "objects identified: \n" + "".join(
+            msg = "objects identified: \n" + "".join(
                 self._get_object_to_track().__str__()
             )
-
+            output_lists = prepare_masks_for_visualization({0: response["outputs"]})
+            annotated_img = visualize_formatted_frame_output(
+                frame_idx=0,
+                video_frames=self.video_frames_for_vis,
+                outputs_list=output_lists,
+                titles=None,
+                figsize=(6, 4),
+                show=False,
+            )
+            return self.image_decorator.append_image_to_string(msg, Frame(annotated_img, ""))
         @tool(description="Reset the video tracker session")
         def reset_tracker() -> str:
             self._reset_session()

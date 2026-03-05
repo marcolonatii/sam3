@@ -118,6 +118,8 @@ class ImageDecorator:
     # todo: get_images
     def get_image_from_string(self, string: str):
         return string.split(self.decorator_str)[1]
+    def get_text_from_string(self, string: str) -> str:
+        return string.split(self.decorator_str)[0]
 
     def append_image_to_string(self, string: str, frame: Frame) -> str:
         return string + self.decorator_str + frame.to_data_url()

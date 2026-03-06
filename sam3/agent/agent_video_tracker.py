@@ -408,13 +408,13 @@ class ObjectList:
 
 json_schema = {"total_pullup_count": "<number>"}
 agent_system_msg = f"""
-You are doing sport analysis on videos. Proceed with the tools
-1.List the objects of interest you want to track in order to answer the question
-2.Verify the object are tracked successfully by calling get_tracked_objects_info
-4.propagate the video with the functions
-5.Then after you get the tracks of the objects, use tools to analyze the position of the objects
-6.return your answer in <answer> ... <answer>
-7.the output format should be in json format with {json_schema}"""
+You are doing sport analysis on videos. Proceed with the tools strictly in this order:
+1. Identify and track all objects of interest using identify_object_by_prompt or track_objects.
+2. Verify tracked objects by calling get_tracked_objects_info.
+3. Call get_object_trajectory for each tracked object to retrieve their full frame-by-frame center coordinates [cx, cy] in normalized 0-1 range (y=0 is top of frame).
+4. Analyze the trajectory data directly: count movement cycles (e.g. pullups = peaks in vertical motion where cy reaches a minimum then rises again). Do NOT skip this step or return a placeholder.
+5. Return your final answer in <answer> ... </answer> with a concrete numeric value.
+6. The output format must be JSON: {json_schema}"""
 
 
 class Sam3TrackingTool:
@@ -656,6 +656,28 @@ class Sam3TrackingTool:
         def get_object_boudingbox(object_id: int, frame_idx: int) -> str:
             return self.object_list.get_object_by_id(object_id).get_box(frame_idx)
 
+        @tool(
+            description=(
+                "Get the full trajectory of a tracked object across all video frames. "
+                "Returns a JSON object mapping frame index to center coordinates [cx, cy] "
+                "in normalized coordinates (0-1 range, where y=0 is top). "
+                "Use this to analyze movement patterns such as counting repetitions "
+                "(e.g. pullups, jumps) by examining the vertical (y-axis) values over time."
+            )
+        )
+        def get_object_trajectory(object_id: int) -> str:
+            obj = self.object_list.get_object_by_id(object_id)
+            if obj is None:
+                return f"Object with id={object_id} not found."
+            trajectory = {
+                str(frame_idx): [
+                    float(center[0]),
+                    float(center[1]),
+                ]
+                for frame_idx, center in sorted(obj.center_coordinates.items())
+            }
+            return json.dumps(trajectory)
+
         return [
             get_tracking_objects,
             identify_object_by_prompt,
@@ -665,4 +687,5 @@ class Sam3TrackingTool:
             get_frame,
             get_object_boudingbox,
             get_tracked_objects_info,
+            get_object_trajectory,
         ]

@@ -108,24 +108,47 @@ class Frame:
 
 
 # an decorator to note the image in the output string
-class ImageDecorator:
-    def __init__(self, decorator_str: str = "__image__") -> None:
-        self.decorator_str = decorator_str
+class Decorator:
+    def __init__(self, image_decorator_str: str = "__image__", text_decorator_str: str = "__text__") -> None:
+        self.image_decorator_str = image_decorator_str
+        self.text_decorator_str = text_decorator_str
 
-    def get_decorator_str(self) -> str:
-        return self.decorator_str
+    def get_image_decorator_str(self) -> str:
+        return self.image_decorator_str
+    def get_text_decorator_str(self) -> str:
+        return self.text_decorator_str
 
-    # todo: get_images
-    def get_image_from_string(self, string: str):
-        return string.split(self.decorator_str)[1]
-    def get_text_from_string(self, string: str) -> str:
-        return string.split(self.decorator_str)[0]
+    def get_images_from_string(self, string: str)->List[str]:
+        if self.image_count(string) == 0:
+            return []
+        return [img for img in string.split(self.image_decorator_str)[1:] if img]
+    def get_texts_from_string(self, string: str) -> str:
+        return [text for text in string.split(self.text_decorator_str) if text]
 
     def append_image_to_string(self, string: str, frame: Frame) -> str:
-        return string + self.decorator_str + frame.to_data_url()
+        return string + self.image_decorator_str + frame.to_data_url()
+    def append_text_to_string(self, string: str, text: str) -> str:
+        return string + self.text_decorator_str + text
     def image_count(self, string: str) -> int:
-        return string.count(self.decorator_str)
-
+        return string.count(self.image_decorator_str)
+    def to_message_content(self, string: str) -> List[Dict[str, str]]:
+        results = []
+        for text_part in string.split(self.text_decorator_str):
+            if not text_part:
+                continue
+            images = self.get_images_from_string(text_part)
+            results.append({"type": "text", "text": text_part.split(self.image_decorator_str)[0]})
+            for img in self.get_images_from_string(text_part):
+                results.append({"type": "image_url", "image_url": {"url": img}})
+        return results
+    # def from_message_content(self, content: List[Dict[str, str]]) -> str:
+    #     results = []
+    #     for item in content:
+    #         if item["type"] == "text":
+    #             results.append(item["text"])
+    #         elif item["type"] == "image_url":
+    #             results.append(self.image_decorator_str + item["image_url"]["url"])
+    #     return self.text_decorator_str.join(results)
 
 class DetectedObject:
     id: int
@@ -441,7 +464,7 @@ class Sam3TrackingTool:
 
         # debug purpose
         self.outputs_per_frame = None
-        self.image_decorator = ImageDecorator()
+        self.decorator = Decorator()
 
     # todo: recursively refine the object list
     def _add_prompt(
@@ -449,6 +472,7 @@ class Sam3TrackingTool:
         prompt_text_str: str,
         bounding_boxes: List[List[float]] = None,
         bounding_box_labels: List[int] = None,
+        frame_idx: int = 0,
     ) -> None:
         # todo: add objects here
         self.object_to_track = ObjectList()
@@ -456,7 +480,7 @@ class Sam3TrackingTool:
         response = add_prompt_for_session(
             predictor=self.predictor,
             prompt_text_str=prompt_text_str,
-            frame_idx=0,
+            frame_idx=frame_idx,
             bounding_boxes=bounding_boxes,
             bounding_box_labels=bounding_box_labels,
             obj_ids=[],
@@ -576,8 +600,9 @@ class Sam3TrackingTool:
             the output will be saved in ./frames_output/frame_0.png \
             """
         add_prompt_description_temp = """
-            prompt to identify a single object in the video, \
-            the text prompt should be noun of a single object\
+            a short and concise prompt to identify a kind of objects in the video, \
+            the text prompt should be a noun phrase of a kind of objects\
+            the frame index to identify the object on, default is 0\
         """
 
         @tool(description="Get the information of the tracked objects")
@@ -590,21 +615,21 @@ class Sam3TrackingTool:
 
         @tool(description=add_prompt_description_temp)
         # def add_prompt(prompt_text_str: str, bounding_boxes: List[List[float]] = None, bounding_box_labels: List[str] = None) -> str:
-        def identify_object_by_prompt(prompt_text_str: str) -> str:
-            response = self._add_prompt(prompt_text_str)
+        def identify_object_by_prompt(prompt_text_str: str, frame_idx: int = 0) -> str:
+            response = self._add_prompt(prompt_text_str, frame_idx=frame_idx)
             msg = "objects identified: \n" + "".join(
                 self._get_object_to_track().__str__()
             )
-            output_lists = prepare_masks_for_visualization({0: response["outputs"]})
+            output_lists = prepare_masks_for_visualization({frame_idx: response["outputs"]})
             annotated_img = visualize_formatted_frame_output(
-                frame_idx=0,
+                frame_idx=frame_idx,
                 video_frames=self.video_frames_for_vis,
                 outputs_list=output_lists,
                 titles=None,
                 figsize=(6, 4),
                 show=False,
             )
-            return self.image_decorator.append_image_to_string(msg, Frame(annotated_img, ""))
+            return self.decorator.append_image_to_string(msg, Frame(annotated_img, ""))
         @tool(description="Reset the video tracker session")
         def reset_tracker() -> str:
             self._reset_session()

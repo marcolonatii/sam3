@@ -161,6 +161,7 @@ def agent_inference(
         set()
     )  # Track all previously used text prompts for segment_phrase
     generation_count = 0  # Counter for number of send_generate_request calls
+    full_trace = []  # full per-round record including <think> blocks
 
     # debug setup
     debug_folder_path = None
@@ -201,6 +202,7 @@ def agent_inference(
     generated_text = send_generate_request(messages)
     print(f"\n>>> MLLM Response [start]\n{generated_text}\n<<< MLLM Response [end]\n")
     while generated_text is not None:
+        full_trace.append({"round": generation_count + 1, "response": generated_text})
         save_debug_messages(messages, debug, debug_folder_path, debug_jsonl_path)
         assert (
             "<tool>" in generated_text,
@@ -488,7 +490,7 @@ def agent_inference(
 
             # Clean up debug files before successful return
             cleanup_debug_files(debug, debug_folder_path, debug_jsonl_path)
-            return messages, final_outputs, rendered_final_output
+            return messages, final_outputs, rendered_final_output, full_trace
 
         elif tool_call["name"] == "report_no_mask":
             print("🔍 Calling report_no_mask tool...")
@@ -508,7 +510,7 @@ def agent_inference(
                     "content": [{"type": "text", "text": generated_text}],
                 }
             )
-            return messages, final_outputs, rendered_final_output
+            return messages, final_outputs, rendered_final_output, full_trace
 
         else:
             raise ValueError(f"Unknown tool call: {tool_call['name']}")
@@ -550,6 +552,8 @@ def agent_inference(
         print(
             f"\n>>> MLLM Response [start]\n{generated_text}\n<<< MLLM Response [end]\n"
         )
+        if generated_text is not None:
+            full_trace.append({"round": generation_count + 1, "response": generated_text})
 
     print("\n\n>>> SAM 3 Agent execution ended.\n\n")
 

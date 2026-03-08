@@ -406,20 +406,12 @@ class ObjectList:
     # Define the tool
 
 
-json_schema = {"total_pullup_count": "<number>"}
-agent_system_msg = f"""
-You are doing sport analysis on videos. Proceed with the tools strictly in this order:
-1. Identify and track all objects of interest using identify_object_by_prompt or track_objects.
-2. Verify tracked objects by calling get_tracked_objects_info.
-3. Call get_object_trajectory for each tracked object to retrieve their full frame-by-frame center coordinates [cx, cy] in normalized 0-1 range (y=0 is top of frame).
-4. Analyze the trajectory data directly: count movement cycles (e.g. pullups = peaks in vertical motion where cy reaches a minimum then rises again). Do NOT skip this step or return a placeholder.
-5. Return your final answer in <answer> ... </answer> with a concrete numeric value.
-6. The output format must be JSON: {json_schema}"""
-
-
 class Sam3TrackingTool:
-    def __init__(self, video_path: str, bpe_path: str) -> None:
-        self.predictor = build_sam3_video_predictor(bpe_path=bpe_path)
+    def __init__(self, video_path: str, bpe_path: str = None, predictor=None) -> None:
+        if predictor is not None:
+            self.predictor = predictor
+        else:
+            self.predictor = build_sam3_video_predictor(bpe_path=bpe_path)
         self.video_path = video_path
         self.video_frames_for_vis = get_frames(self.video_path)
         self.session_id = get_session(self.predictor, self.video_path)

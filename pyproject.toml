@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61", "wheel"]
+requires = ["setuptools==70", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,7 @@ name = "sam3"
 dynamic = ["version"]
 description = "SAM3 (Segment Anything Model 3) implementation"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9,<3.13"
 license = {file = "LICENSE"}
 authors = [
     {name = "Meta AI Research"}
@@ -17,7 +17,6 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -33,6 +32,10 @@ dependencies = [
     "iopath>=0.1.10",
     "typing_extensions",
     "huggingface_hub",
+    "setuptools==70.0.0",
+    "langfuse>=3.7.0",
+    "langchain-google-genai>=2.1.12",
+    "ipykernel>=6.31.0",
 ]
 
 [project.optional-dependencies]
@@ -50,9 +53,11 @@ dev = [
     "pycocotools",
     "numba",
     "python-rapidjson",
+    "gdown"
 ]
 notebooks = [
     "matplotlib",
+    "ipykernel",
     "jupyter",
     "notebook",
     "ipywidgets",
@@ -64,6 +69,13 @@ notebooks = [
     "einops",
     "scikit-image",
     "scikit-learn",
+    "langchain",
+    "langchain-openai",
+    "dotenv>=0.9.9",
+    "pandas",
+    "pandas>=2.3.3",
+    "langfuse>=3.7.0",
+    "langchain-google-genai>=2.1.12",
 ]
 train = [
     "hydra-core",

@@ -1,0 +1,6 @@
+.env
+pull_up_bar_output*/
+frames_output/
+*.jpg
+lane_change_output*/
+output/

@@ -42,7 +42,7 @@ def run_single_image_inference(
         return
 
     print(f"{'-' * 30} Starting SAM 3 Agent Session... {'-' * 30} ")
-    agent_history, final_output_dict, rendered_final_output = agent_inference(
+    agent_history, final_output_dict, rendered_final_output, full_trace, prompt_history = agent_inference(
         image_path,
         text_prompt,
         send_generate_request=send_generate_request,
@@ -55,13 +55,17 @@ def run_single_image_inference(
     final_output_dict["text_prompt"] = text_prompt
     final_output_dict["image_path"] = image_path
 
+    trace_path = os.path.join(output_dir, f"{base_filename}_thinking.json")
+
     # Save outputs
     json.dump(final_output_dict, open(output_json_path, "w"), indent=4)
     json.dump(agent_history, open(agent_history_path, "w"), indent=4)
+    json.dump(full_trace, open(trace_path, "w"), indent=4)
     rendered_final_output.save(output_image_path)
 
     print(f"\n✅ Successfully processed single image!")
     print(f"Output JSON: {output_json_path}")
     print(f"Output Image: {output_image_path}")
     print(f"Agent History: {agent_history_path}")
-    return output_image_path
+    print(f"Thinking Trace: {trace_path}")
+    return output_image_path, prompt_history

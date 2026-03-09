@@ -147,6 +147,7 @@ Output Format for Scenario 2:
 4. Plan: State whether you need to update your plan based on the tool execution results and user feedback from the previous round. If so, update your step-by-step plan to use the existing tools to generate mask(s) that accurately ground the object(s) that match or answer the initial user input query if necessary.
 5. Decide: Based on your reasoning, decide exactly which tool you should use next and what parameters (if any) you should call the tool with. </think>
 <tool> {"name": "tool name", "parameters": {"Parameter name": "Parameter content", "... ...": "... ..."}} </tool>
+6. ensure the you use <tag> content </tag> WITHOUT adding any extra attributes
 
 
 

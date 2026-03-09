@@ -17,7 +17,17 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 import torch
 import torch.utils.data
 import torchvision
-from decord import cpu, VideoReader
+try:
+    from decord import cpu, VideoReader
+    _has_decord = True
+except ImportError:
+    _has_decord = False
+    # Dummy classes for when decord is not available
+    class VideoReader:
+        def __init__(self, *args, **kwargs):
+            raise ImportError("decord is required for video reading. Install it with: conda install -c conda-forge decord")
+    def cpu(*args):
+        raise ImportError("decord is required for video reading. Install it with: conda install -c conda-forge decord")
 from iopath.common.file_io import g_pathmgr
 from PIL import Image as PILImage
 from PIL.Image import DecompressionBombError

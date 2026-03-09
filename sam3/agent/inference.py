@@ -42,7 +42,7 @@ def run_single_image_inference(
         return
 
     print(f"{'-' * 30} Starting SAM 3 Agent Session... {'-' * 30} ")
-    agent_history, final_output_dict, rendered_final_output, full_trace = agent_inference(
+    agent_history, final_output_dict, rendered_final_output, full_trace, prompt_history = agent_inference(
         image_path,
         text_prompt,
         send_generate_request=send_generate_request,
@@ -68,4 +68,4 @@ def run_single_image_inference(
     print(f"Output Image: {output_image_path}")
     print(f"Agent History: {agent_history_path}")
     print(f"Thinking Trace: {trace_path}")
-    return output_image_path
+    return output_image_path, prompt_history

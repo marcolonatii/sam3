@@ -162,6 +162,7 @@ def agent_inference(
     )  # Track all previously used text prompts for segment_phrase
     generation_count = 0  # Counter for number of send_generate_request calls
     full_trace = []  # full per-round record including <think> blocks
+    prompt_history = []
 
     # debug setup
     debug_folder_path = None
@@ -254,6 +255,7 @@ def agent_inference(
                 # Add the text_prompt to the set of used prompts
                 USED_TEXT_PROMPTS.add(current_text_prompt)
                 LATEST_SAM3_TEXT_PROMPT = current_text_prompt
+                prompt_history.append(current_text_prompt)
                 PATH_TO_LATEST_OUTPUT_JSON = call_sam_service(
                     image_path=img_path,
                     text_prompt=current_text_prompt,
@@ -490,7 +492,7 @@ def agent_inference(
 
             # Clean up debug files before successful return
             cleanup_debug_files(debug, debug_folder_path, debug_jsonl_path)
-            return messages, final_outputs, rendered_final_output, full_trace
+            return messages, final_outputs, rendered_final_output, full_trace, prompt_history
 
         elif tool_call["name"] == "report_no_mask":
             print("🔍 Calling report_no_mask tool...")
@@ -510,7 +512,7 @@ def agent_inference(
                     "content": [{"type": "text", "text": generated_text}],
                 }
             )
-            return messages, final_outputs, rendered_final_output, full_trace
+            return messages, final_outputs, rendered_final_output, full_trace, prompt_history
 
         else:
             raise ValueError(f"Unknown tool call: {tool_call['name']}")

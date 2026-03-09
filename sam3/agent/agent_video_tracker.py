@@ -19,6 +19,7 @@ from typing import List, Tuple, Dict
 from ..model_builder import build_sam3_video_predictor
 from langchain.tools import tool
 from tqdm import tqdm
+from langchain.tools import ToolRuntime
 
 from PIL import Image
 from io import BytesIO
@@ -219,6 +220,25 @@ class DetectedObject:
         }
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(data, f)
+    def save_v2(self, box_path:str, masks_path:str):
+        data = {
+            "id": int(self.id),
+            "label": self.label,
+            "img_W": int(self.img_W),
+            "img_H": int(self.img_H),
+            "bounding_boxes": {
+                str(k): [float(x) for x in v] for k, v in self.bounding_boxes.items()
+            },
+            "center_coordinates": {
+                str(k): [float(x) for x in v]
+                for k, v in self.center_coordinates.items()
+            }
+        }
+        masks_payload = {str(frame_idx): mask for frame_idx, mask in self.masks.items()}
+        if masks_payload:
+            np.savez_compressed(masks_path, **masks_payload)
+        with open(box_path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
 
     @classmethod
     def load(cls, path: str, id: int) -> "DetectedObject":
@@ -399,6 +419,13 @@ class ObjectList:
         for o in self.objects:
             if o.label == label:
                 return o
+        return None
+    def get_objects_by_label(self, label: str):
+        objects = []
+        for o in self.objects:
+            if o.label == label:
+                objects.append(o)
+        return objects
 
     def get_object_by_id(self, object_id: int):
         for o in self.objects:
@@ -430,7 +457,7 @@ class ObjectList:
 
 
 class Sam3TrackingTool:
-    def __init__(self, video_path: str, bpe_path: str = None, predictor=None) -> None:
+    def __init__(self, video_path: str, bpe_path: str = None, predictor=None, tool_runtime=None) -> None:
         if predictor is not None:
             self.predictor = predictor
         else:
@@ -465,6 +492,8 @@ class Sam3TrackingTool:
         # debug purpose
         self.outputs_per_frame = None
         self.decorator = Decorator()
+        #fixme: should migrate to another class
+        self.tool_runtime = tool_runtime
 
     # todo: recursively refine the object list
     def _add_prompt(
@@ -694,6 +723,20 @@ class Sam3TrackingTool:
                 for frame_idx, center in sorted(obj.center_coordinates.items())
             }
             return json.dumps(trajectory)
+        @tool(description="save objects by label to a file")
+        def save_objects_by_label(object_label: str) -> str:
+            save_path = self.tool_runtime.get("msw_path")
+            assert save_path is not None, "the save path is not set"
+            if not os.path.exists(save_path):
+                return "the path doesn't exist"
+            objects = self.object_list.get_objects_by_label(object_label)
+            if not objects:
+                return "the object you give doesn't exist, the object list is: " + self.object_list.__str__()
+            for object in objects:
+                box_path = os.path.join(save_path, f"{object_label}__id_{object.id}_box.json")
+                masks_path = os.path.join(save_path, f"{object_label}__id_{object.id}_masks.npz")
+                object.save_v2(box_path, masks_path)
+            return f"objects {object_label} saved successfully, the box and masks are saved in {save_path}"
 
         return [
             get_tracking_objects,
@@ -705,4 +748,5 @@ class Sam3TrackingTool:
             get_object_boudingbox,
             get_tracked_objects_info,
             get_object_trajectory,
+            save_objects_by_label,
         ]

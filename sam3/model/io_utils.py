@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 logger = get_logger(__name__)
 
-_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+_DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 
 IS_MAIN_PROCESS = os.getenv("IS_MAIN_PROCESS", "1") == "1"
 RANK = int(os.getenv("RANK", "0"))

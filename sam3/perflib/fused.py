@@ -16,6 +16,19 @@ def addmm_act(activation, linear, mat1):
     mat1 = mat1.to(torch.bfloat16)
     mat2 = mat2.to(torch.bfloat16)
     mat1_flat = mat1.view(-1, mat1.shape[-1])
+
+    if not torch.cuda.is_available():
+        # aten::_addmm_activation is a CUDA-only fused kernel; fall back to
+        # standard ops on CPU / MPS.
+        y = mat1_flat @ mat2.t() + self
+        if activation in [torch.nn.functional.relu, torch.nn.ReLU]:
+            y = torch.relu(y)
+        elif activation in [torch.nn.functional.gelu, torch.nn.GELU]:
+            y = torch.nn.functional.gelu(y)
+        else:
+            raise ValueError(f"Unexpected activation {activation}")
+        return y.view(mat1.shape[:-1] + (y.shape[-1],))
+
     if activation in [torch.nn.functional.relu, torch.nn.ReLU]:
         y = addmm_act_op(self, mat1_flat, mat2.t(), beta=1, alpha=1, use_gelu=False)
         return y.view(mat1.shape[:-1] + (y.shape[-1],))

@@ -19,8 +19,8 @@ from tqdm import tqdm
 
 logger = get_logger(__name__)
 
-_DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-# MPS doesn't support bfloat16 accumulation; use float32 on non-CUDA devices.
+# MPS is excluded: sam3 uses bfloat16 ops incompatible with MPS matmul accumulation.
+_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 _DTYPE = torch.float16 if torch.cuda.is_available() else torch.float32
 
 IS_MAIN_PROCESS = os.getenv("IS_MAIN_PROCESS", "1") == "1"

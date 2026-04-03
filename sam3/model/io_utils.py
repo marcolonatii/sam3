@@ -20,6 +20,8 @@ from tqdm import tqdm
 logger = get_logger(__name__)
 
 _DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+# MPS doesn't support bfloat16 accumulation; use float32 on non-CUDA devices.
+_DTYPE = torch.float16 if torch.cuda.is_available() else torch.float32
 
 IS_MAIN_PROCESS = os.getenv("IS_MAIN_PROCESS", "1") == "1"
 RANK = int(os.getenv("RANK", "0"))
@@ -42,8 +44,8 @@ def load_resource_as_video_frames(
     Alternatively, if input is a list of PIL images, convert its format
     """
     if isinstance(resource_path, list):
-        img_mean = torch.tensor(img_mean, dtype=torch.float16)[:, None, None]
-        img_std = torch.tensor(img_std, dtype=torch.float16)[:, None, None]
+        img_mean = torch.tensor(img_mean, dtype=_DTYPE)[:, None, None]
+        img_std = torch.tensor(img_std, dtype=_DTYPE)[:, None, None]
         assert all(isinstance(img_pil, Image.Image) for img_pil in resource_path)
         assert len(resource_path) is not None
         orig_height, orig_width = resource_path[0].size
@@ -58,7 +60,7 @@ def load_resource_as_video_frames(
             img_np = img_np / 255.0
             img = torch.from_numpy(img_np).permute(2, 0, 1)
             # float16 precision should be sufficient for image tensor storage
-            img = img.to(dtype=torch.float16)
+            img = img.to(dtype=_DTYPE)
             # normalize by mean and std
             img -= img_mean
             img /= img_std
@@ -101,10 +103,10 @@ def load_image_as_single_frame_video(
 ):
     """Load an image as a single-frame video."""
     images, image_height, image_width = _load_img_as_tensor(image_path, image_size)
-    images = images.unsqueeze(0).half()
+    images = images.unsqueeze(0).to(_DTYPE)
 
-    img_mean = torch.tensor(img_mean, dtype=torch.float16)[:, None, None]
-    img_std = torch.tensor(img_std, dtype=torch.float16)[:, None, None]
+    img_mean = torch.tensor(img_mean, dtype=_DTYPE)[:, None, None]
+    img_std = torch.tensor(img_std, dtype=_DTYPE)[:, None, None]
     if not offload_video_to_cpu:
         images = images.to(_DEVICE)
         img_mean = img_mean.to(_DEVICE)
@@ -193,8 +195,8 @@ def load_video_frames_from_image_folder(
     if num_frames == 0:
         raise RuntimeError(f"no images found in {image_folder}")
     img_paths = [os.path.join(image_folder, frame_name) for frame_name in frame_names]
-    img_mean = torch.tensor(img_mean, dtype=torch.float16)[:, None, None]
-    img_std = torch.tensor(img_std, dtype=torch.float16)[:, None, None]
+    img_mean = torch.tensor(img_mean, dtype=_DTYPE)[:, None, None]
+    img_std = torch.tensor(img_std, dtype=_DTYPE)[:, None, None]
 
     if async_loading_frames:
         lazy_images = AsyncImageFrameLoader(
@@ -203,7 +205,7 @@ def load_video_frames_from_image_folder(
         return lazy_images, lazy_images.video_height, lazy_images.video_width
 
     # float16 precision should be sufficient for image tensor storage
-    images = torch.zeros(num_frames, 3, image_size, image_size, dtype=torch.float16)
+    images = torch.zeros(num_frames, 3, image_size, image_size, dtype=_DTYPE)
     video_height, video_width = None, None
     for n, img_path in enumerate(
         tqdm(img_paths, desc=f"frame loading (image folder) [rank={RANK}]")
@@ -319,8 +321,8 @@ def load_video_frames_from_video_file_using_cv2(
     frames_np = np.stack(frames, axis=0).astype(np.float32)  # (T, H, W, C)
     video_tensor = torch.from_numpy(frames_np).permute(0, 3, 1, 2)  # (T, C, H, W)
 
-    img_mean = torch.tensor(img_mean, dtype=torch.float16).view(1, 3, 1, 1)
-    img_std = torch.tensor(img_std, dtype=torch.float16).view(1, 3, 1, 1)
+    img_mean = torch.tensor(img_mean, dtype=_DTYPE).view(1, 3, 1, 1)
+    img_std = torch.tensor(img_std, dtype=_DTYPE).view(1, 3, 1, 1)
     if not offload_video_to_cpu:
         video_tensor = video_tensor.to(_DEVICE)
         img_mean = img_mean.to(_DEVICE)
@@ -337,9 +339,9 @@ def load_dummy_video(image_size, offload_video_to_cpu, num_frames=60, do_zeros=F
     """
     video_height, video_width = 480, 640  # dummy original video sizes
     if not do_zeros:
-        images = torch.randn(num_frames, 3, image_size, image_size, dtype=torch.float16)
+        images = torch.randn(num_frames, 3, image_size, image_size, dtype=_DTYPE)
     else:
-        images = torch.zeros(num_frames, 3, image_size, image_size, dtype=torch.float16)
+        images = torch.zeros(num_frames, 3, image_size, image_size, dtype=_DTYPE)
     if not offload_video_to_cpu:
         images = images.to(_DEVICE)
     return images, video_height, video_width
@@ -405,7 +407,7 @@ class AsyncImageFrameLoader:
         self.video_height = video_height
         self.video_width = video_width
         # float16 precision should be sufficient for image tensor storage
-        img = img.to(dtype=torch.float16)
+        img = img.to(dtype=_DTYPE)
         # normalize by mean and std
         img -= self.img_mean
         img /= self.img_std
@@ -537,10 +539,10 @@ class AsyncVideoFileLoaderWithTorchCodec:
         self.image_size = image_size
         self.offload_video_to_cpu = offload_video_to_cpu
         if not isinstance(img_mean, torch.Tensor):
-            img_mean = torch.tensor(img_mean, dtype=torch.float16)[:, None, None]
+            img_mean = torch.tensor(img_mean, dtype=_DTYPE)[:, None, None]
         self.img_mean = img_mean
         if not isinstance(img_std, torch.Tensor):
-            img_std = torch.tensor(img_std, dtype=torch.float16)[:, None, None]
+            img_std = torch.tensor(img_std, dtype=_DTYPE)[:, None, None]
         self.img_std = img_std
 
         if gpu_acceleration:
@@ -569,7 +571,7 @@ class AsyncVideoFileLoaderWithTorchCodec:
             3,
             self.image_size,
             self.image_size,
-            dtype=torch.float16,
+            dtype=_DTYPE,
             device=self.out_device,
         )
         # catch and raise any exceptions in the async loading thread
@@ -671,7 +673,7 @@ class AsyncVideoFileLoaderWithTorchCodec:
             align_corners=False,
         )[0]
         # float16 precision should be sufficient for image tensor storage
-        frame_resized = frame_resized.half()  # uint8 -> float16
+        frame_resized = frame_resized.to(_DTYPE)  # uint8 -> float16
         frame_resized /= 255
         frame_resized -= self.img_mean
         frame_resized /= self.img_std

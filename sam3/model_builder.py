@@ -1253,6 +1253,11 @@ def build_sam3_predictor(
     use_fa3: bool = True,
     use_rope_real: bool = True,
     async_loading_frames: bool = True,
+    # DINO fusion (optional)
+    use_dino_fusion: bool = False,
+    dino_model_name: str = "facebook/dinov3-vitl16-pretrain-lvd1689m",
+    dino_freeze_backbone: bool = True,
+    dino_checkpoint_path: Optional[str] = None,
     **kwargs,
 ):
     """
@@ -1269,6 +1274,14 @@ def build_sam3_predictor(
         use_fa3: Use Flash Attention 3
         use_rope_real: Use real-valued RoPE
         async_loading_frames: Load video frames asynchronously
+        use_dino_fusion: Attach a DinoEncoder + CrossAttentionFuser to fuse DINOv3
+            patch features into the memory-conditioned SAM features before the mask
+            decoder on every tracked frame.
+        dino_model_name: HuggingFace model ID for the DINOv3 backbone.
+        dino_freeze_backbone: Freeze DINOv3 weights (inference-only by default).
+        dino_checkpoint_path: Optional path to a .pt file containing
+            ``{"dino_encoder": <state_dict>, "cross_attention_fuser": <state_dict>}``.
+            When None, the modules are freshly initialized (useful for fine-tuning).
         **kwargs: Additional arguments passed to the underlying builder
 
     Returns:
@@ -1277,14 +1290,11 @@ def build_sam3_predictor(
         remove_object, reset_session, close_session.
 
     Example:
-        # SAM 3.1 (auto-downloads from HuggingFace):
+        # SAM 3.1 with DINO fusion (auto-downloads from HuggingFace):
+        predictor = build_sam3_predictor(version="sam3.1", use_dino_fusion=True)
+
+        # Or without DINO fusion:
         predictor = build_sam3_predictor(version="sam3.1", compile=True)
-
-        # SAM 3 (auto-downloads from HuggingFace):
-        predictor = build_sam3_predictor(version="sam3")
-
-        # Or with a local checkpoint:
-        predictor = build_sam3_predictor(checkpoint_path="path/to/ckpt.pt", version="sam3.1")
 
         # Both use the same API:
         response = predictor.handle_request({"type": "start_session", "resource_path": video_dir})
@@ -1294,7 +1304,7 @@ def build_sam3_predictor(
             masks = out["out_binary_masks"]
     """
     if version == "sam3.1":
-        return build_sam3_multiplex_video_predictor(
+        predictor = build_sam3_multiplex_video_predictor(
             checkpoint_path=checkpoint_path,
             bpe_path=bpe_path,
             max_num_objects=max_num_objects,
@@ -1306,13 +1316,102 @@ def build_sam3_predictor(
             async_loading_frames=async_loading_frames,
             **kwargs,
         )
+        if use_dino_fusion:
+            _attach_dino_fusion_sam31(
+                predictor=predictor,
+                dino_model_name=dino_model_name,
+                dino_freeze_backbone=dino_freeze_backbone,
+                dino_checkpoint_path=dino_checkpoint_path,
+            )
+        return predictor
     elif version == "sam3":
-        return build_sam3_video_predictor(
+        predictor = build_sam3_video_predictor(
             checkpoint_path=checkpoint_path,
             bpe_path=bpe_path,
             compile=compile,
             async_loading_frames=async_loading_frames,
             **kwargs,
         )
+        if use_dino_fusion:
+            _attach_dino_fusion_sam3(
+                predictor=predictor,
+                dino_model_name=dino_model_name,
+                dino_freeze_backbone=dino_freeze_backbone,
+                dino_checkpoint_path=dino_checkpoint_path,
+            )
+        return predictor
     else:
         raise ValueError(f"Unknown version: {version!r}. Use 'sam3' or 'sam3.1'.")
+
+
+def _build_dino_fusion_modules(dino_model_name, dino_freeze_backbone, device="cuda"):
+    """Instantiate DinoEncoder and CrossAttentionFuser and move to device."""
+    from sam3.model.cross_attention_fuser import CrossAttentionFuser
+    from sam3.model.dino_encoder import DinoEncoder
+
+    dino_encoder = DinoEncoder(
+        model_name=dino_model_name,
+        out_dim=256,
+        freeze_backbone=dino_freeze_backbone,
+    ).to(device)
+    cross_attention_fuser = CrossAttentionFuser(embed_dim=256, num_heads=8).to(device)
+    return dino_encoder, cross_attention_fuser
+
+
+def _attach_dino_fusion_sam31(predictor, dino_model_name, dino_freeze_backbone, dino_checkpoint_path):
+    """Attach DINO fusion modules to a SAM 3.1 predictor.
+
+    The tracker model lives at ``predictor.model.tracker.model`` for SAM 3.1.
+    """
+    device = next(predictor.model.tracker.model.parameters()).device
+    dino_encoder, cross_attention_fuser = _build_dino_fusion_modules(
+        dino_model_name, dino_freeze_backbone, device=device
+    )
+    if dino_checkpoint_path is not None:
+        ckpt = torch.load(dino_checkpoint_path, map_location="cpu", weights_only=True)
+        dino_encoder.load_state_dict(ckpt["dino_encoder"])
+        cross_attention_fuser.load_state_dict(ckpt["cross_attention_fuser"])
+    predictor.model.tracker.model.set_dino_fusion(dino_encoder, cross_attention_fuser)
+
+
+def _attach_dino_fusion_sam3(predictor, dino_model_name, dino_freeze_backbone, dino_checkpoint_path):
+    """Attach DINO fusion modules to a SAM 3 predictor.
+
+    For SAM 3, the tracker model is accessible via the predictor's inner model.
+    Falls back to iterating submodules to find any Sam3TrackerBase instance.
+    """
+    from sam3.model.sam3_tracker_base import Sam3TrackerBase
+
+    tracker = None
+    # Try to find the tracker as a direct attribute first
+    for attr in ("model", "tracker"):
+        candidate = getattr(predictor, attr, None)
+        if isinstance(candidate, Sam3TrackerBase):
+            tracker = candidate
+            break
+        if candidate is not None:
+            for attr2 in ("model", "tracker"):
+                inner = getattr(candidate, attr2, None)
+                if isinstance(inner, Sam3TrackerBase):
+                    tracker = inner
+                    break
+        if tracker is not None:
+            break
+    if tracker is None:
+        # Fallback: find first Sam3TrackerBase submodule
+        for module in predictor.modules():
+            if isinstance(module, Sam3TrackerBase):
+                tracker = module
+                break
+    if tracker is None:
+        raise RuntimeError("Could not find Sam3TrackerBase in the SAM 3 predictor.")
+
+    device = next(tracker.parameters()).device
+    dino_encoder, cross_attention_fuser = _build_dino_fusion_modules(
+        dino_model_name, dino_freeze_backbone, device=device
+    )
+    if dino_checkpoint_path is not None:
+        ckpt = torch.load(dino_checkpoint_path, map_location="cpu", weights_only=True)
+        dino_encoder.load_state_dict(ckpt["dino_encoder"])
+        cross_attention_fuser.load_state_dict(ckpt["cross_attention_fuser"])
+    tracker.set_dino_fusion(dino_encoder, cross_attention_fuser)

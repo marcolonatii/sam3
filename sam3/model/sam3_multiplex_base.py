@@ -539,7 +539,7 @@ class Sam3MultiplexBase(Sam3VideoBase):
             pos_pred_mask = pos_pred_mask.squeeze(0)
             det_out = {k: det_out[k][0] for k in det_out}
             # Move detections we'll actually keep at the top for future logic
-            pos_pred_mask_idx = pos_pred_mask.argsort(descending=True)
+            pos_pred_mask_idx = pos_pred_mask.float().argsort(descending=True)
             pos_pred_mask = torch.index_select(
                 pos_pred_mask, dim=0, index=pos_pred_mask_idx
             )

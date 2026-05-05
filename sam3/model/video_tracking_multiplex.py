@@ -637,6 +637,20 @@ class VideoTrackingMultiplex(nn.Module):
         else:
             self.obj_ptr_tpos_proj = torch.nn.Identity()
 
+        # DINOv3 cross-attention fusion modules (injected after init via set_dino_fusion)
+        self.dino_encoder = None
+        self.cross_attention_fuser = None
+
+    def set_dino_fusion(self, dino_encoder, cross_attention_fuser):
+        """Attach pre-built DINOv3 encoder and cross-attention fuser.
+
+        After calling this method, every propagation step in ``_track_step_aux``
+        will fuse per-frame DINOv3 features into the memory-conditioned SAM3.1
+        features before passing them to ``_forward_sam_heads``.
+        """
+        self.dino_encoder = dino_encoder
+        self.cross_attention_fuser = cross_attention_fuser
+
     def _get_interactive_pix_mem(
         self, features: torch.Tensor, feat_sizes: list[tuple]
     ) -> torch.Tensor:
@@ -1076,7 +1090,12 @@ class VideoTrackingMultiplex(nn.Module):
                     backbone_out["sam2_backbone_out"]["backbone_fpn"][1].tensors
                 )
         # Clone to help torch.compile
-        for out_type in backbone_out.keys():
+        # Only iterate over the known sub-dict keys; the backbone_out dict may also
+        # contain flat tensor entries (e.g. "vision_features") when need_sam3_out=True,
+        # and accessing ["backbone_fpn"] on those tensors would raise IndexError.
+        for out_type in neck_outs:
+            if out_type not in backbone_out:
+                continue
             for i in range(len(backbone_out[out_type]["backbone_fpn"])):
                 backbone_out[out_type]["backbone_fpn"][i].tensors = self._maybe_clone(
                     backbone_out[out_type]["backbone_fpn"][i].tensors
@@ -2066,6 +2085,13 @@ class VideoTrackingMultiplex(nn.Module):
                     track_in_reverse=track_in_reverse,
                     multiplex_state=multiplex_state,
                 )
+
+                # DINOv3 cross-attention fusion (optional, only active when set_dino_fusion was called)
+                if self.dino_encoder is not None and self.cross_attention_fuser is not None and image is not None:
+                    dino_features = self.dino_encoder(image)  # [1, N_patches, 256]
+                    B_mp = pix_feat_with_mem.shape[0]          # multiplex batch (num buckets)
+                    dino_features_exp = dino_features.expand(B_mp, -1, -1)
+                    pix_feat_with_mem = self.cross_attention_fuser(pix_feat_with_mem, dino_features_exp)
 
                 # propagate the mask
                 # this is the propagation step; do not consider point_inputs here

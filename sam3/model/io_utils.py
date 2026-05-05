@@ -121,11 +121,17 @@ def load_video_frames(
     img_std=(0.5, 0.5, 0.5),
     async_loading_frames=False,
     video_loader_type="cv2",
+    use_torchcodec=False,
+    use_cv2=False,
 ):
     """
     Load the video frames from video_path. The frames are resized to image_size as in
     the model and are loaded to GPU if offload_video_to_cpu=False. This is used by the demo.
     """
+    if use_torchcodec:
+        video_loader_type = "torchcodec"
+    elif use_cv2:
+        video_loader_type = "cv2"
     assert isinstance(video_path, str)
     if video_path.startswith("<load-dummy-video"):
         # Check for pattern <load-dummy-video-N> where N is an integer

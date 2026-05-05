@@ -149,6 +149,12 @@ class Sam3TrackerBase(torch.nn.Module):
         self.use_memory_selection = use_memory_selection
         self.mf_threshold = mf_threshold
 
+        # Part 5: optional DINO fusion (DinoEncoder + CrossAttentionFuser)
+        # When both are set, DINO patch features are fused with the memory-conditioned
+        # SAM features via cross-attention before the SAM mask decoder on every frame.
+        self.dino_encoder = None
+        self.cross_attention_fuser = None
+
         # Compile all components of the model
         self.compile_all_components = compile_all_components
         if self.compile_all_components:
@@ -438,6 +444,19 @@ class Sam3TrackerBase(torch.nn.Module):
             "Please use the corresponding methods in SAM3VideoPredictor for inference."
             "See examples/sam3_dense_video_tracking.ipynb for an inference example."
         )
+
+    def set_dino_fusion(self, dino_encoder, cross_attention_fuser):
+        """Attach a DinoEncoder and CrossAttentionFuser to enable DINO feature fusion.
+
+        Call this after loading a checkpoint to add the DINO modules.  Both modules
+        must be on the same device as the tracker before calling ``track_step``.
+
+        Args:
+            dino_encoder: A ``DinoEncoder`` instance.
+            cross_attention_fuser: A ``CrossAttentionFuser`` instance.
+        """
+        self.dino_encoder = dino_encoder
+        self.cross_attention_fuser = cross_attention_fuser
 
     def forward_image(self, img_batch):
         """Get the image feature on the input batch."""
@@ -987,6 +1006,10 @@ class Sam3TrackerBase(torch.nn.Module):
                 assert self.iter_use_prev_mask_pred
                 assert point_inputs is not None and mask_inputs is None
                 mask_inputs = prev_sam_mask_logits
+            # optionally fuse DINO patch features into the memory-conditioned SAM features
+            if self.dino_encoder is not None and self.cross_attention_fuser is not None:
+                dino_feats = self.dino_encoder(image)  # [B, N_patches, C]
+                pix_feat_with_mem = self.cross_attention_fuser(pix_feat_with_mem, dino_feats)
             multimask_output = self._use_multimask(is_init_cond_frame, point_inputs)
             sam_outputs = self._forward_sam_heads(
                 backbone_features=pix_feat_with_mem,

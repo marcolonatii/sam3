@@ -1,8 +1,9 @@
 """
 Train the DINOv3 fusion components on short MoCA clips (with memory propagation).
 
-Training exposes the DINO cross-attention fuser to memory-conditioned features,
-matching the inference-time distribution for frames 2+ in a video.
+Uses SAM3.1 (multiplex) architecture.  Training exposes the DINO cross-attention
+fuser to memory-conditioned features, matching the inference-time distribution
+for frames 2+ in a video.
 
 Clip structure (default clip_len=5):
   Frame 0 → GT mask prompt → memory encoded
@@ -16,17 +17,17 @@ Loss is averaged over frames 1..T-1 (frame-0 loss is ~0 since prediction ≈ GT)
 
 Trainable modules (opt-in):
   - dino_encoder.proj + cross_attention_fuser  (always, --lr)
-  - sam_mask_decoder                           (--decoder_lr)
-  - transformer (memory attention)             (--memory_attn_lr)
+  - sam_mask_decoder (propagation decoder)     (--decoder_lr)
+  - transformer.encoder (memory attention)     (--memory_attn_lr)
 
-SAM3 normalizes images with (0.5, 0.5, 0.5) mean/std.
-SAM3 input size: 1008×1008 pixels.
+SAM3.1 normalizes images with (0.5, 0.5, 0.5) mean/std.
+SAM3.1 input size: 1008×1008 pixels.
 
 Usage (from /home/marcol01/sam3/):
     python scripts/train_dino_fusion_clips.py \\
         --init_weights ./checkpoints_dino_fusion_pretrain_simple/dino_fusion_best.pt \\
         --moca_frames /Experiments/marcol01/frames_train \\
-        --moca_masks  /Experiments/marcol01/masks_train \\
+        --moca_masks  /Experiments/marcol01/MoCA-Mask-Pseudo/MoCA-Video-Train \\
         --output_dir  ./checkpoints_dino_fusion_clips \\
         --lr 1e-4 --decoder_lr 1e-5 --memory_attn_lr 1e-6 \\
         --clip_len 5 --clip_stride 2 --epochs 15
@@ -165,18 +166,15 @@ def combined_loss(pred_logits: torch.Tensor, target: torch.Tensor) -> torch.Tens
 def build_model(args):
     from sam3.model.cross_attention_fuser import CrossAttentionFuser
     from sam3.model.dino_encoder import DinoEncoder
-    from sam3.model_builder import build_sam3_video_model
+    from sam3.model_builder import build_sam3_multiplex_video_model
 
-    full_model = build_sam3_video_model(
+    # build_sam3_multiplex_video_model returns the tracker model directly
+    tracker = build_sam3_multiplex_video_model(
         checkpoint_path=args.checkpoint,
         load_from_HF=(args.checkpoint is None),
         strict_state_dict_loading=False,
         device="cpu",
     )
-
-    # Attach the shared backbone to the tracker (needed for forward_image)
-    tracker = full_model.tracker
-    tracker.backbone = full_model.detector.backbone
 
     # Attach DINO fusion modules
     dino_encoder = DinoEncoder(
@@ -194,18 +192,21 @@ def freeze_and_collect_trainable(tracker, fusion_lr: float, decoder_lr=None, mem
     for p in tracker.parameters():
         p.requires_grad = False
 
-    def _collect(keywords):
+    def _collect(keywords, exclude_keywords=None):
         params, names = [], []
         for name, p in tracker.named_parameters():
             if any(k in name for k in keywords):
+                if exclude_keywords and any(ek in name for ek in exclude_keywords):
+                    continue
                 p.requires_grad = True
                 params.append(p)
                 names.append(name)
         return params, names
 
     fusion_params,      fusion_names      = _collect(["dino_encoder.proj", "cross_attention_fuser"])
-    decoder_params,     decoder_names     = _collect(["sam_mask_decoder"]) if decoder_lr else ([], [])
-    memory_attn_params, memory_attn_names = _collect(["transformer"]) if memory_attn_lr else ([], [])
+    # Exclude interactive_sam_mask_decoder which also contains "sam_mask_decoder" as a substring
+    decoder_params,     decoder_names     = _collect(["sam_mask_decoder"], exclude_keywords=["interactive_sam_mask_decoder"]) if decoder_lr else ([], [])
+    memory_attn_params, memory_attn_names = _collect(["transformer.encoder"]) if memory_attn_lr else ([], [])
 
     total       = sum(p.numel() for p in tracker.parameters())
     n_trainable = sum(p.numel() for p in tracker.parameters() if p.requires_grad)
@@ -238,56 +239,62 @@ def freeze_and_collect_trainable(tracker, fusion_lr: float, decoder_lr=None, mem
 # Clip-level forward pass
 # ---------------------------------------------------------------------------
 
-def forward_clip(
+def _forward_single_clip(
     tracker,
-    images: torch.Tensor,   # [B, T, 3, H, W]
-    masks:  torch.Tensor,   # [B, T, 1, H, W]
+    images: torch.Tensor,   # [T, 3, H, W]  — single clip
+    masks:  torch.Tensor,   # [T, 1, H, W]
+    T: int,
     device: torch.device,
 ) -> torch.Tensor:
-    """Run B clips of T frames through SAM3 with online memory propagation.
+    """Run one clip through SAM3.1 with online memory propagation.
 
-    Frame 0: GT mask supplied as mask_input → memory encoded, loss ≈ 0.
-    Frames 1..T-1: memory-conditioned features → DINO fusion → loss.
+    Frame 0: GT mask → mask-as-output → memory encoded, loss ≈ 0.
+    Frames 1..T-1: memory-conditioned → DINO fusion → loss.
 
-    Returns:
-        Scalar loss averaged over frames 1..T-1.
+    Returns: scalar loss averaged over frames 1..T-1.
     """
-    B, T = images.shape[:2]
+    from sam3.model.data_misc import NestedTensor
 
     output_dict: dict = {"cond_frame_outputs": {}, "non_cond_frame_outputs": {}}
+    # Single object per clip; multiplex_count=16 → 1 bucket
+    multiplex_state = tracker.multiplex_controller.get_state(
+        1, device=device, dtype=torch.float, random=False
+    )
     total_loss: torch.Tensor | None = None
 
     for t in range(T):
-        frame   = images[:, t]   # [B, 3, H, W]
-        gt_mask = masks[:, t]    # [B, 1, H, W]
+        # Shape: [1, 3, H, W]  (batch=1 for clean per-clip memory)
+        frame   = images[t : t + 1]
+        gt_mask = masks[t : t + 1]   # [1, 1, H, W]
+        is_init = (t == 0)
 
         # --- Backbone (frozen) ---
         with torch.no_grad():
-            backbone_out = tracker.forward_image(frame)
-            _, vision_feats, vision_pos_embeds, feat_sizes = \
-                tracker._prepare_backbone_features(backbone_out)
+            backbone_out = tracker.forward_image(
+                NestedTensor(tensors=frame, mask=None),
+                need_interactive_out=True,
+                need_propagation_out=True,
+            )
+            backbone_features = tracker._prepare_backbone_features(backbone_out)
 
-        is_init = (t == 0)
-
-        # --- SAM3 track_step:
-        #   • _prepare_memory_conditioned_features (memory transformer)
-        #   • DINO cross-attention fusion (trainable)
-        #   • _forward_sam_heads (decoder, optionally trainable)
-        #   • _encode_new_memory (memory encoder, frozen)
-        # Note: SAM3 track_step signature has `image` before `point_inputs`
+        # --- SAM3.1 track_step:
+        #   init frame  → mask-as-output + memory encode
+        #   later frames → _prepare_memory_conditioned_features → DINO fusion → loss
         current_out = tracker.track_step(
             frame_idx=t,
             is_init_cond_frame=is_init,
-            current_vision_feats=vision_feats,
-            current_vision_pos_embeds=vision_pos_embeds,
-            feat_sizes=feat_sizes,
+            backbone_features_interactive=backbone_features.get("interactive"),
+            backbone_features_propagation=backbone_features.get("sam2_backbone_out"),
             image=frame,
             point_inputs=None,
             mask_inputs=gt_mask if is_init else None,
+            gt_masks=None,
+            frames_to_add_correction_pt=set(),
             output_dict=output_dict,
             num_frames=T,
             run_mem_encoder=True,
             prev_sam_mask_logits=None,
+            multiplex_state=multiplex_state,
         )
 
         if is_init:
@@ -303,6 +310,21 @@ def forward_clip(
     return total_loss / (T - 1)
 
 
+def forward_clip(
+    tracker,
+    images: torch.Tensor,   # [B, T, 3, H, W]
+    masks:  torch.Tensor,   # [B, T, 1, H, W]
+    device: torch.device,
+) -> torch.Tensor:
+    """Run B clips through SAM3.1, processing each clip independently."""
+    B, T = images.shape[:2]
+    total_loss: torch.Tensor | None = None
+    for b in range(B):
+        loss_b = _forward_single_clip(tracker, images[b], masks[b], T, device)
+        total_loss = loss_b if total_loss is None else total_loss + loss_b
+    return total_loss / B
+
+
 # ---------------------------------------------------------------------------
 # Training / validation loops
 # ---------------------------------------------------------------------------
@@ -316,7 +338,9 @@ def train_epoch(tracker, dataloader, optimizer, scaler, device, epoch, args):
     tracker.maskmem_backbone.eval()
     if args.decoder_lr is None:
         tracker.sam_mask_decoder.eval()
-    tracker.sam_prompt_encoder.eval()
+    # SAM3.1 uses interactive_sam_prompt_encoder and interactive_sam_mask_decoder
+    tracker.interactive_sam_prompt_encoder.eval()
+    tracker.interactive_sam_mask_decoder.eval()
     if tracker.dino_encoder is not None:
         tracker.dino_encoder.backbone.eval()
 
@@ -411,7 +435,7 @@ def _save_loss_curve(train_hist, val_hist, output_dir):
     ax.plot(xs, val_hist,   marker="s", markersize=3, linewidth=1.5, label="Val")
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Loss (avg over clip frames)")
-    ax.set_title("DINOv3 Fusion Clip Training Loss (SAM3)")
+    ax.set_title("DINOv3 Fusion Clip Training Loss (SAM3.1)")
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -442,7 +466,7 @@ def main():
     parser.add_argument("--decoder_lr",     type=float, default=None,
                         help="If set, also fine-tune sam_mask_decoder at this LR")
     parser.add_argument("--memory_attn_lr", type=float, default=None,
-                        help="If set, also fine-tune transformer (memory attention) at this LR")
+                        help="If set, also fine-tune transformer.encoder (memory attention) at this LR")
     parser.add_argument("--weight_decay",   type=float, default=1e-4)
     parser.add_argument("--batch_size",     type=int,   default=2,
                         help="Clips per batch (reduce to 1 if OOM with memory_attn training)")
@@ -465,7 +489,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # ---- Model ----
-    print("Building SAM3 + DINOv3 fusion model...")
+    print("Building SAM3.1 + DINOv3 fusion model...")
     tracker      = build_model(args)
     param_groups = freeze_and_collect_trainable(tracker, args.lr, args.decoder_lr, args.memory_attn_lr)
     tracker      = tracker.to(device)

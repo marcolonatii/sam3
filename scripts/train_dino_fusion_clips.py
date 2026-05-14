@@ -36,6 +36,7 @@ Usage (from /home/marcol01/sam3/):
 import argparse
 import contextlib
 import os
+import random
 import sys
 import time
 
@@ -524,6 +525,8 @@ def main():
     parser.add_argument("--resume",         type=str,   default=None,
                         help="Per-epoch checkpoint to resume from "
                              "(model weights + optimizer + scheduler + epoch all restored)")
+    parser.add_argument("--seed",           type=int,   default=42,
+                        help="Random seed for reproducibility")
     parser.add_argument("--output_dir",     type=str,
                         default="./checkpoints_dino_fusion_clips")
     parser.add_argument("--moca_frames",    type=str,
@@ -531,6 +534,15 @@ def main():
     parser.add_argument("--moca_masks",     type=str,
                         default="/Experiments/marcol01/masks_train")
     args = parser.parse_args()
+
+    # ---- Reproducibility ----
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    print(f"Random seed: {args.seed}")
 
     os.makedirs(args.output_dir, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -577,17 +589,24 @@ def main():
     n_train = len(full_ds) - n_val
     train_ds, val_ds = random_split(
         full_ds, [n_train, n_val],
-        generator=torch.Generator().manual_seed(42),
+        generator=torch.Generator().manual_seed(args.seed),
     )
     print(f"Clips: {len(full_ds)} total → train: {n_train}, val: {n_val}")
+
+    def _worker_init_fn(worker_id):
+        np.random.seed(args.seed + worker_id)
+        random.seed(args.seed + worker_id)
 
     train_loader = DataLoader(
         train_ds, batch_size=args.batch_size, shuffle=True,
         num_workers=args.num_workers, pin_memory=True, drop_last=True,
+        worker_init_fn=_worker_init_fn,
+        generator=torch.Generator().manual_seed(args.seed),
     )
     val_loader = DataLoader(
         val_ds, batch_size=args.batch_size, shuffle=False,
         num_workers=args.num_workers, pin_memory=True, drop_last=False,
+        worker_init_fn=_worker_init_fn,
     )
 
     # ---- Optimiser ----

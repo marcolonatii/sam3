@@ -50,8 +50,12 @@ class DinoEncoder(nn.Module):
         freeze_backbone: If True, DINOv3 weights are frozen during training.
         dino_input_size: Spatial size (square) to resize images to before
             passing to DINOv3.  Must be divisible by the patch size (16).
-            Default 1024 → 64×64 patch grid, matching SAM3's 64×64 feature map
-            with no resize needed for SAM3's native 1024×1024 input.
+            Default 1024 → 64×64 patch grid (4096 tokens).
+            For the conv-based CrossAttentionFuser (which requires pixel-aligned
+            features), use 1152 → 72×72 to match SAM3's feature map
+            (1008px image / stride 14 = 72).
+            For the attention-based CrossAttentionFuser, 1024 works fine since
+            cross-attention handles the 72×72 vs 64×64 mismatch.
         sam_pixel_mean: SAM3 pixel mean used to invert SAM normalization.
         sam_pixel_std: SAM3 pixel std used to invert SAM normalization.
     """

@@ -34,6 +34,7 @@ Usage (from /home/marcol01/sam3/):
 """
 
 import argparse
+import contextlib
 import os
 import sys
 import time
@@ -181,6 +182,7 @@ def build_model(args):
         model_name=args.dino_model,
         out_dim=256,
         freeze_backbone=True,
+        #dino_input_size=1152,  # 1152/16=72 patches → matches SAM3's 1008/14=72 feature map
     )
     cross_attn_fuser = CrossAttentionFuser(embed_dim=256, num_heads=8)
     tracker.set_dino_fusion(dino_encoder, cross_attn_fuser)
@@ -268,14 +270,43 @@ def _forward_single_clip(
         gt_mask = masks[t : t + 1]   # [1, 1, H, W]
         is_init = (t == 0)
 
-        # --- Backbone (frozen) ---
+        # --- Backbone ---
+        # The ViT backbone contains fused ops (perflib/fused.py) that raise
+        # ValueError if autograd is enabled — so it must always run under no_grad.
+        # tracker.forward_image applies conv_s0/conv_s1 inside that same call,
+        # which would block their gradients when --decoder_lr is set.
+        # Fix: call tracker.backbone.forward_image (ViT + neck, no conv) under
+        # no_grad, then apply conv_s0/conv_s1 separately with a controlled context.
+        _need_decoder_grad = tracker.sam_mask_decoder.conv_s0.weight.requires_grad
+
         with torch.no_grad():
-            backbone_out = tracker.forward_image(
+            backbone_out = tracker.backbone.forward_image(
                 NestedTensor(tensors=frame, mask=None),
-                need_interactive_out=True,
+                need_sam3_out=False,
+                need_interactive_out=is_init,   # interactive neck only for frame 0
                 need_propagation_out=True,
             )
-            backbone_features = tracker._prepare_backbone_features(backbone_out)
+
+        if tracker.use_high_res_features_in_sam:
+            # sam_mask_decoder.conv_s0/s1 need grad when --decoder_lr is set
+            _conv_ctx = contextlib.nullcontext() if _need_decoder_grad else torch.no_grad()
+            with _conv_ctx:
+                backbone_out["sam2_backbone_out"]["backbone_fpn"][0].tensors = \
+                    tracker.sam_mask_decoder.conv_s0(
+                        backbone_out["sam2_backbone_out"]["backbone_fpn"][0].tensors)
+                backbone_out["sam2_backbone_out"]["backbone_fpn"][1].tensors = \
+                    tracker.sam_mask_decoder.conv_s1(
+                        backbone_out["sam2_backbone_out"]["backbone_fpn"][1].tensors)
+            if is_init:
+                with torch.no_grad():  # interactive decoder always frozen in this script
+                    backbone_out["interactive"]["backbone_fpn"][0].tensors = \
+                        tracker.interactive_sam_mask_decoder.conv_s0(
+                            backbone_out["interactive"]["backbone_fpn"][0].tensors)
+                    backbone_out["interactive"]["backbone_fpn"][1].tensors = \
+                        tracker.interactive_sam_mask_decoder.conv_s1(
+                            backbone_out["interactive"]["backbone_fpn"][1].tensors)
+
+        backbone_features = tracker._prepare_backbone_features(backbone_out)
 
         # --- SAM3.1 track_step:
         #   init frame  → mask-as-output + memory encode
@@ -304,7 +335,20 @@ def _forward_single_clip(
 
         # Loss: skip frame 0 (prediction ≈ GT via mask-as-output)
         if not is_init:
-            loss_t = combined_loss(current_out["pred_masks_high_res"], gt_mask)
+            # SAM3.1 has pred_obj_scores=True: the score predictor gates the mask
+            # with a hard torch.where(score > 0, real_mask, -1024).  No gradient
+            # flows through that gate back to object_score_logits, so we must
+            # supervise it explicitly.  All MoCA training frames contain the object
+            # → target is always 1.  This is loss_class from the official SAM3 loss.
+            obj_score_logits = current_out.get("object_score_logits")
+            if obj_score_logits is not None:
+                loss_t = combined_loss(current_out["pred_masks_high_res"], gt_mask) + \
+                         F.binary_cross_entropy_with_logits(
+                             obj_score_logits,
+                             torch.ones_like(obj_score_logits),
+                         )
+            else:
+                loss_t = combined_loss(current_out["pred_masks_high_res"], gt_mask)
             total_loss = loss_t if total_loss is None else total_loss + loss_t
 
     return total_loss / (T - 1)
@@ -477,6 +521,9 @@ def main():
     parser.add_argument("--init_weights",   type=str,   default=None,
                         help="Fusion checkpoint to warm-start from "
                              "(optimizer/scheduler NOT restored)")
+    parser.add_argument("--resume",         type=str,   default=None,
+                        help="Per-epoch checkpoint to resume from "
+                             "(model weights + optimizer + scheduler + epoch all restored)")
     parser.add_argument("--output_dir",     type=str,
                         default="./checkpoints_dino_fusion_clips")
     parser.add_argument("--moca_frames",    type=str,
@@ -550,6 +597,56 @@ def main():
     )
     scaler = torch.amp.GradScaler("cuda")
 
+    start_epoch = 0
+    if args.resume is not None:
+        if not os.path.isfile(args.resume):
+            print(f"ERROR: resume checkpoint not found: {args.resume}")
+            sys.exit(1)
+        print(f"Resuming from checkpoint: {args.resume}")
+        ckpt = torch.load(args.resume, map_location=device, weights_only=True)
+        tracker.dino_encoder.load_state_dict(ckpt["dino_encoder"])
+        tracker.cross_attention_fuser.load_state_dict(ckpt["cross_attention_fuser"])
+        if "sam_mask_decoder" in ckpt:
+            tracker.sam_mask_decoder.load_state_dict(ckpt["sam_mask_decoder"])
+        if "transformer" in ckpt:
+            tracker.transformer.load_state_dict(ckpt["transformer"])
+        optimizer.load_state_dict(ckpt["optimizer"])
+        scheduler.load_state_dict(ckpt["scheduler"])
+        start_epoch = ckpt["epoch"]  # epoch already completed
+        print(f"  Resumed. Continuing from epoch {start_epoch + 1}/{args.epochs}.")
+
+        # --- Resume sanity checks ---
+        print("\n  [Resume debug]")
+        print(f"    start_epoch      : {start_epoch}  (expect {ckpt['epoch']})")
+        print(f"    scheduler.last_epoch: {scheduler.last_epoch}  (expect {start_epoch})")
+        for i, pg in enumerate(optimizer.param_groups):
+            print(f"    optimizer param_group[{i}] lr: {pg['lr']:.6e}")
+        # Verify a key weight matches the checkpoint
+        proj_w  = tracker.dino_encoder.proj.weight
+        ckpt_w  = ckpt["dino_encoder"]["proj.weight"] if "proj.weight" in ckpt["dino_encoder"] else None
+        if ckpt_w is not None:
+            match = torch.allclose(proj_w.cpu(), ckpt_w.cpu(), atol=1e-6)
+            print(f"    dino_encoder.proj.weight matches ckpt: {match}")
+        fuser_key = next(iter(ckpt["cross_attention_fuser"]))
+        model_val = dict(tracker.cross_attention_fuser.named_parameters())[fuser_key]
+        ckpt_val  = ckpt["cross_attention_fuser"][fuser_key]
+        match = torch.allclose(model_val.cpu(), ckpt_val.cpu(), atol=1e-6)
+        print(f"    cross_attention_fuser.{fuser_key} matches ckpt: {match}")
+        if "sam_mask_decoder" in ckpt:
+            dec_key   = next(iter(ckpt["sam_mask_decoder"]))
+            model_val = dict(tracker.sam_mask_decoder.named_parameters())[dec_key]
+            ckpt_val  = ckpt["sam_mask_decoder"][dec_key]
+            match = torch.allclose(model_val.cpu(), ckpt_val.cpu(), atol=1e-6)
+            print(f"    sam_mask_decoder.{dec_key} matches ckpt: {match}")
+        if "transformer" in ckpt:
+            tr_key    = next(iter(ckpt["transformer"]))
+            model_val = dict(tracker.transformer.named_parameters())[tr_key]
+            ckpt_val  = ckpt["transformer"][tr_key]
+            match = torch.allclose(model_val.cpu(), ckpt_val.cpu(), atol=1e-6)
+            print(f"    transformer.{tr_key} matches ckpt: {match}")
+        print(f"    best_val (from ckpt): {ckpt['val_loss']:.4f}")
+        print()
+
     print(f"\nStarting clip training for {args.epochs} epochs")
     print(
         f"  LR_fusion={args.lr}  LR_decoder={args.decoder_lr}  "
@@ -560,11 +657,13 @@ def main():
     print(f"  val_split={args.val_split}")
     print(f"  output: {args.output_dir}\n")
 
-    best_val   = float("inf")
+    # When resuming, start best_val from the checkpoint's val loss so we don't
+    # overwrite dino_fusion_best.pt with a worse result on the first resumed epoch.
+    best_val = ckpt["val_loss"] if args.resume is not None else float("inf")
     train_hist: list[float] = []
     val_hist:   list[float] = []
 
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
         t0       = time.time()
         tr_loss  = train_epoch(tracker, train_loader, optimizer, scaler, device, epoch, args)
         val_loss = validate_epoch(tracker, val_loader, device)
